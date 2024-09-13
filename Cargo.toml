@@ -1,0 +1,14 @@
+[package]
+name = "speki-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dirs = "5.0.1"
+gkquad = "0.0.4"
+samsvar = "0.1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.128"
+tokio = "1.40.0"
+toml = "0.8.19"
+uuid = { version = "1.0", features = ["v4", "serde"] }
