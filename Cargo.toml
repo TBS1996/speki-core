@@ -1,5 +1,5 @@
 [package]
-name = "samsvar"
+name = "speki-core"
 version = "0.1.0"
 edition = "2021"
 authors = ["tor torberge@outlook.com"]

@@ -231,20 +231,6 @@ checksum = "f3cb5ba0dc43242ce17de99c180e96db90b235b8a9fdc9543c96d2209116bd9f"
 [[package]]
 name = "samsvar"
 version = "0.1.0"
-dependencies = [
- "dirs",
- "gkquad",
- "samsvar 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde",
- "serde_json",
- "tokio",
- "toml",
- "uuid",
-]
-
-[[package]]
-name = "samsvar"
-version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f4d6aa558a744eda753479f3c6b58d56fd87fe7526877e3635e5853e730f6796"
 dependencies = [
@@ -298,6 +284,20 @@ name = "smallvec"
 version = "1.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
+
+[[package]]
+name = "speki-core"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "gkquad",
+ "samsvar",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
+ "uuid",
+]
 
 [[package]]
 name = "syn"
