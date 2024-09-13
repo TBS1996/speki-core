@@ -66,8 +66,10 @@ impl SavedCard {
     pub fn new(card: Card) -> Self {
         let filename = truncate_string(card.front.clone(), 30);
         let mut path = crate::paths::get_cards_path().join(&filename);
+        path.set_extension("toml");
         if path.exists() {
             path = crate::paths::get_cards_path().join(&card.id.to_string());
+            path.set_extension("toml");
         };
 
         let s: String = toml::to_string_pretty(&card).unwrap();

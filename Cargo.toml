@@ -1,7 +1,11 @@
 [package]
-name = "speki-core"
+name = "samsvar"
 version = "0.1.0"
 edition = "2021"
+authors = ["tor torberge@outlook.com"]
+description = "core functionality of speki"
+license = "GPL-2.0-only"
+
 
 [dependencies]
 dirs = "5.0.1"
