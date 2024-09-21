@@ -8,11 +8,11 @@ use samsvar::json;
 use samsvar::Matcher;
 use sanitize_filename::sanitize;
 use serde::de::Deserializer;
-use serde::{de, Deserialize, Serialize, Serializer};
+use serde::{de, Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 use std::ffi::OsString;
-use std::fs::{self, read_to_string};
+use std::fs::{self, create_dir_all, read_to_string};
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -73,7 +73,9 @@ pub struct SavedCard {
 impl SavedCard {
     pub fn new(card: Card) -> Self {
         let filename = sanitize(card.front.clone().replace(" ", "_").replace("'", ""));
-        let mut path = crate::paths::get_cards_path().join(&filename);
+        let dir = Category::private().as_path();
+        create_dir_all(&dir).unwrap();
+        let mut path = dir.join(&filename);
         path.set_extension("toml");
         if path.exists() {
             path = crate::paths::get_cards_path().join(&card.id.to_string());
@@ -294,29 +296,6 @@ impl SavedCard {
         }
     }
 
-    pub fn search_in_cards<'a>(
-        input: &'a str,
-        cards: &'a HashSet<SavedCard>,
-        excluded_cards: &'a HashSet<Id>,
-    ) -> Vec<&'a SavedCard> {
-        cards
-            .iter()
-            .filter(|card| {
-                (card
-                    .card
-                    .front
-                    .to_ascii_lowercase()
-                    .contains(&input.to_ascii_lowercase())
-                    || card
-                        .card
-                        .back
-                        .to_ascii_lowercase()
-                        .contains(&input.to_ascii_lowercase()))
-                    && !excluded_cards.contains(&card.id())
-            })
-            .collect()
-    }
-
     pub fn edit_with_vim(&self) -> Self {
         let path = self.as_path();
         open_file_with_vim(path.as_path()).unwrap();
@@ -512,74 +491,4 @@ impl<'de> Deserialize<'de> for IsSuspended {
 
 fn default_finished() -> bool {
     true
-}
-
-/// How important a given card is, where 0 is the least important, 100 is most important.
-#[derive(Ord, PartialOrd, Eq, PartialEq, Hash, Debug, Clone)]
-pub struct Priority(u32);
-
-impl Priority {
-    pub fn as_float(&self) -> f32 {
-        self.to_owned().into()
-    }
-
-    pub fn is_default(&self) -> bool {
-        Self::default() == *self
-    }
-}
-
-impl TryFrom<char> for Priority {
-    type Error = ();
-
-    fn try_from(value: char) -> Result<Self, Self::Error> {
-        let pri = match value {
-            '1' => 16,
-            '2' => 33,
-            '3' => 66,
-            '4' => 83,
-            _ => return Err(()),
-        };
-        Ok(Self(pri))
-    }
-}
-
-impl From<u32> for Priority {
-    fn from(value: u32) -> Self {
-        Self(value.clamp(0, 100))
-    }
-}
-
-impl Default for Priority {
-    fn default() -> Self {
-        Self(50)
-    }
-}
-
-impl From<Priority> for f32 {
-    fn from(value: Priority) -> Self {
-        value.0 as f32 / 100.
-    }
-}
-
-impl Serialize for Priority {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        self.0.serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for Priority {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let value = u32::deserialize(deserializer)?;
-        if value > 100 {
-            Err(serde::de::Error::custom("Invalid priority value"))
-        } else {
-            Ok(Priority(value))
-        }
-    }
 }

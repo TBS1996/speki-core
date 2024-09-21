@@ -3,13 +3,15 @@ pub mod card;
 pub mod categories;
 pub mod common;
 pub mod config;
+pub mod git;
 pub mod paths;
 pub mod recall_rate;
 pub mod reviews;
 
 pub use card::SavedCard;
 use common::Id;
-use config::{Config, Repos};
+use config::Config;
+use git::Repos;
 use paths::get_repo_path;
 use reviews::Grade;
 use samsvar::Matcher;

@@ -14,6 +14,15 @@ impl Category {
         Self::default()
     }
 
+    pub fn private() -> Self {
+        Self::root().join("personal")
+    }
+
+    pub fn join(mut self, s: &str) -> Self {
+        self.0.push(s.to_string());
+        self
+    }
+
     pub fn joined(&self) -> String {
         self.0.join("/")
     }
