@@ -5,7 +5,6 @@ pub mod common;
 pub mod config;
 pub mod paths;
 pub mod recall_rate;
-pub mod repos;
 pub mod reviews;
 
 pub use card::SavedCard;
@@ -136,7 +135,7 @@ pub fn fetch_repo() {
     let path = get_repo_path();
     let repo = match Repository::open(&path) {
         Ok(repo) => repo,
-        Err(e) => match Repository::clone("https://github.com/TBS1996/spekibase", &path) {
+        Err(_) => match Repository::clone("https://github.com/TBS1996/spekibase", &path) {
             Ok(repo) => repo,
             Err(e) => {
                 panic!("{}", e);

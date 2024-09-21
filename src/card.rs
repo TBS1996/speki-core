@@ -368,9 +368,6 @@ impl SavedCard {
 fn is_true(b: &bool) -> bool {
     *b == true
 }
-fn is_false(b: &bool) -> bool {
-    *b == false
-}
 
 #[derive(Ord, PartialOrd, Eq, Hash, PartialEq, Deserialize, Serialize, Debug, Default, Clone)]
 pub struct Card {
