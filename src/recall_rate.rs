@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::{
-    card::{Card, RecallRate},
+    card::RecallRate,
     reviews::{Grade, Reviews},
 };
 

@@ -2,9 +2,6 @@ use serde::de::Visitor;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::paths::{self, get_cards_path};
-use std::collections::HashSet;
-use std::fs::{self};
-use std::io::{self};
 use std::path::Path;
 use std::path::PathBuf;
 

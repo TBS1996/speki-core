@@ -103,7 +103,7 @@ pub fn prune_dependencies() {
     }
 }
 
-use git2::{FetchOptions, RemoteCallbacks, Repository};
+use git2::{FetchOptions, Repository};
 
 fn git_pull(repo: Repository) {
     let mut remote = repo.find_remote("origin").unwrap();
