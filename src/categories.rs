@@ -1,63 +1,18 @@
 use serde::de::Visitor;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::cache::CardCache;
-use crate::card::SavedCard;
-use crate::common::Id;
 use crate::paths::{self, get_cards_path};
-use std::collections::{BTreeSet, HashSet};
-use std::fs::{self, File};
-use std::io::{self, BufRead};
+use std::collections::HashSet;
+use std::fs::{self};
+use std::io::{self};
 use std::path::Path;
 use std::path::PathBuf;
-
-pub type CardFilter = Box<dyn FnMut(Id, &mut CardCache) -> bool>;
 
 // Represent the category that a card is in, can be nested
 #[derive(Ord, PartialOrd, Eq, Hash, Debug, Clone, Default, PartialEq)]
 pub struct Category(pub Vec<String>);
 
-fn read_lines<P>(filename: P) -> io::Result<Vec<String>>
-where
-    P: AsRef<Path>,
-{
-    let file = File::open(filename)?;
-    let reader = io::BufReader::new(file);
-    reader.lines().collect::<Result<_, _>>()
-}
-
 impl Category {
-    pub fn get_all_tags() -> BTreeSet<String> {
-        let cats = Category::get_following_categories(&Category::root());
-        let mut tags = BTreeSet::new();
-
-        for cat in cats {
-            let path = cat.as_path().join("tags");
-            if let Ok(lines) = read_lines(path) {
-                tags.extend(lines);
-            }
-        }
-        tags.remove("");
-        tags
-    }
-
-    pub fn get_tags(&self) -> BTreeSet<String> {
-        let mut tags = BTreeSet::new();
-        let mut cat = self.clone();
-
-        loop {
-            let path = cat.as_path().join("tags");
-            if let Ok(lines) = read_lines(path) {
-                tags.extend(lines);
-            }
-            if cat.0.is_empty() {
-                break;
-            }
-            cat.0.pop();
-        }
-        tags
-    }
-
     pub fn root() -> Self {
         Self::default()
     }
@@ -66,7 +21,7 @@ impl Category {
         self.0.join("/")
     }
 
-    pub fn from_dir_path(path: &Path) -> Self {
+    fn from_dir_path(path: &Path) -> Self {
         let folder = path.strip_prefix(paths::get_cards_path()).unwrap();
 
         let components: Vec<String> = Path::new(folder)
@@ -86,62 +41,26 @@ impl Category {
     pub fn from_card_path(path: &Path) -> Self {
         let without_prefix = path.strip_prefix(paths::get_cards_path()).unwrap();
         let folder = without_prefix.parent().unwrap();
-
-        let components: Vec<String> = Path::new(folder)
-            .components()
-            .filter_map(|component| component.as_os_str().to_str().map(String::from))
-            .collect();
-
-        let categories = Self(components);
-
-        if categories.as_path().exists() {
-            categories
-        } else {
-            panic!();
-        }
+        Self::from_dir_path(&folder)
     }
 
-    pub fn rec_get_containing_cards(&self) -> Vec<SavedCard> {
-        let categories = self.get_following_categories();
-        let mut cards = HashSet::new();
-        for category in &categories {
-            cards.extend(category.get_containing_cards());
-        }
-        cards.into_iter().collect()
-    }
-
-    pub fn get_containing_cards(&self) -> HashSet<SavedCard> {
+    pub fn get_containing_card_paths(&self) -> Vec<PathBuf> {
         let directory = self.as_path();
-        let mut cards = HashSet::new();
+        let mut paths = vec![];
 
         for entry in std::fs::read_dir(directory).unwrap() {
             let entry = entry.unwrap();
             let path = entry.path();
 
             if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("toml") {
-                let full_card = SavedCard::from_path(&path);
-                cards.insert(full_card);
+                paths.push(path)
             }
         }
-        cards
+        paths
     }
 
-    pub fn get_containing_card_ids(&self) -> HashSet<Id> {
-        self.get_containing_cards()
-            .into_iter()
-            .map(|card| card.id().to_owned())
-            .collect()
-    }
-
-    pub fn sort_categories(categories: &mut [Category]) {
-        categories.sort_by(|a, b| {
-            let a_str = a.0.join("/");
-            let b_str = b.0.join("/");
-            a_str.cmp(&b_str)
-        });
-    }
-    pub fn get_following_categories(&self) -> HashSet<Self> {
-        let categories = Category::load_all().unwrap();
+    pub fn get_following_categories(&self) -> Vec<Self> {
+        let categories = Category::load_all();
         let catlen = self.0.len();
         categories
             .into_iter()
@@ -167,53 +86,27 @@ impl Category {
         format!("{}{}", s, self.print_it())
     }
 
-    pub fn import_category() -> Self {
-        let cat = Self(vec!["imports".into()]);
-        std::fs::create_dir_all(cat.as_path()).unwrap();
-        dbg!(cat.as_path());
-        cat
+    fn is_visible_dir(entry: &walkdir::DirEntry) -> bool {
+        entry.file_type().is_dir() && !entry.file_name().to_string_lossy().starts_with(".")
     }
 
-    pub fn load_all() -> io::Result<Vec<Self>> {
+    pub fn load_all() -> Vec<Self> {
+        let mut output = vec![];
         let root = get_cards_path();
-        let root = root.as_path();
-        let mut folders = Vec::new();
-        Self::collect_folders_inner(root, root, &mut folders)?;
-        folders.push(Category::default());
-        Category::sort_categories(&mut folders);
-        Ok(folders)
-    }
+        use walkdir::WalkDir;
 
-    pub fn _append(mut self, category: &str) -> Self {
-        self.0.push(category.into());
-        self
-    }
-
-    fn collect_folders_inner(
-        root: &Path,
-        current: &Path,
-        folders: &mut Vec<Category>,
-    ) -> io::Result<()> {
-        if current.is_dir() {
-            for entry in fs::read_dir(current)? {
-                let entry = entry?;
-                let path = entry.path();
-                if path.is_dir() {
-                    // Compute the relative path from root to the current directory
-                    let rel_path = path
-                        .strip_prefix(root)
-                        .expect("Failed to compute relative path")
-                        .components()
-                        .map(|c| c.as_os_str().to_string_lossy().into_owned())
-                        .collect::<Vec<String>>();
-                    if !rel_path.last().unwrap().starts_with('_') {
-                        folders.push(Self(rel_path));
-                        Self::collect_folders_inner(root, &path, folders)?;
-                    }
-                }
+        for entry in WalkDir::new(&root)
+            .into_iter()
+            .filter_entry(|e| Self::is_visible_dir(e))
+            .filter_map(Result::ok)
+        {
+            let cat = Self::from_dir_path(entry.path());
+            if cat != Self::root() {
+                output.push(cat);
             }
         }
-        Ok(())
+
+        output
     }
 
     pub fn as_path(&self) -> PathBuf {

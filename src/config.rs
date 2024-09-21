@@ -1,50 +1,93 @@
+use crate::paths::{self, get_share_path};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{
-    fs::File,
+    fs::{create_dir_all, File},
     io::{Read, Write},
     path::PathBuf,
+    process::Command,
 };
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Repo {
+    remote: String,
+    name: String,
+}
 
-use crate::{common::open_file_with_vim, paths::get_share_path};
+impl Repo {
+    pub fn new(remote: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            remote: remote.into(),
+            name: name.into(),
+        }
+    }
+
+    pub fn path(&self) -> PathBuf {
+        let path = paths::get_cards_path().join(&self.name);
+        create_dir_all(&path).unwrap();
+        path
+    }
+
+    pub fn exists(&self) -> bool {
+        self.path().join(".git").exists()
+    }
+
+    pub fn clone(&self) {
+        let output = Command::new("git")
+            .arg("clone")
+            .arg(&self.remote)
+            .arg(&self.path())
+            .output()
+            .expect("Failed to execute git command");
+
+        if output.status.success() {
+            println!("cloned successfully");
+        } else {
+            println!("unsuccesfull clone: {:?}", &output);
+        }
+    }
+
+    pub fn pull(&self) {
+        if !self.exists() {
+            self.clone();
+        }
+
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(&self.path())
+            .arg("pull")
+            .output()
+            .expect("Failed to execute git command");
+
+        if !output.status.success() {
+            println!("unsuccesfull pull: {:?}", &output);
+        }
+    }
+}
+
+pub struct Repos(Vec<Repo>);
+
+impl Repos {
+    pub fn fetch_all(&self) {
+        for repo in &self.0 {
+            repo.pull();
+        }
+    }
+}
+
+impl Repos {
+    pub fn new(config: &Config) -> Self {
+        Self(config.repos.clone())
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-
 pub struct Config {
-    pub play_audio: bool,
-    pub show_images: bool,
-    pub download_media: bool,
-    #[serde(
-        serialize_with = "option_string_to_empty_string",
-        deserialize_with = "empty_string_to_option"
-    )]
-    pub git_remote: Option<String>,
-    #[serde(
-        serialize_with = "option_string_to_empty_string",
-        deserialize_with = "empty_string_to_option"
-    )]
-    pub gpt_key: Option<String>,
+    pub repos: Vec<Repo>,
 }
 
 impl Config {
-    fn _config_path() -> PathBuf {
-        dirs::home_dir()
-            .unwrap()
-            .join(".config")
-            .join("speki")
-            .join("config.toml")
-    }
-
-    fn config_path() -> PathBuf {
-        get_share_path().join("config.toml")
-    }
-
-    pub fn edit_with_vim() {
-        open_file_with_vim(Self::config_path().as_path()).unwrap();
-    }
-
-    pub fn read_git_remote(&self) -> &Option<String> {
-        &self.git_remote
+    pub fn config_path() -> PathBuf {
+        paths::config_dir().join("config.toml")
     }
 
     // Save the config to a file
@@ -77,32 +120,7 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            play_audio: true,
-            show_images: true,
-            download_media: true,
-            git_remote: None,
-            gpt_key: None,
+            repos: vec![Repo::new("git@github.com:TBS1996/spekibase.git", "main")],
         }
     }
-}
-
-fn option_string_to_empty_string<S>(
-    value: &Option<String>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    match value {
-        Some(v) => serializer.serialize_str(v),
-        None => serializer.serialize_str(""),
-    }
-}
-
-fn empty_string_to_option<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s: String = Deserialize::deserialize(deserializer)?;
-    Ok(if s.is_empty() { None } else { Some(s) })
 }

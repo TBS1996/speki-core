@@ -85,7 +85,7 @@ pub mod serde_duration_as_secs {
 }
 
 pub fn open_file_with_vim(path: &Path) -> io::Result<()> {
-    let status = Command::new("vim").arg(path).status()?;
+    let status = Command::new("nvim").arg(path).status()?;
 
     if status.success() {
         Ok(())

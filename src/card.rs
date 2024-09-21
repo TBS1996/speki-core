@@ -1,18 +1,23 @@
+use crate::cache;
+use crate::categories::Category;
+use crate::common::{open_file_with_vim, system_time_as_unix_time};
+use crate::paths;
+use crate::reviews::{Grade, Review, Reviews};
+use crate::{common::current_time, common::Id};
+use samsvar::json;
+use samsvar::Matcher;
+use sanitize_filename::sanitize;
+use serde::de::Deserializer;
 use serde::{de, Deserialize, Serialize, Serializer};
-use toml::Value;
-
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashSet};
 use std::ffi::OsString;
 use std::fs::{self, read_to_string};
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
-
 use std::time::Duration;
+use toml::Value;
 use uuid::Uuid;
-
-use crate::categories::Category;
-use crate::{common::current_time, common::Id};
 
 pub type RecallRate = f32;
 
@@ -58,13 +63,16 @@ impl From<SavedCard> for Card {
 #[derive(Clone, Ord, PartialOrd, PartialEq, Eq, Hash, Debug)]
 pub struct SavedCard {
     card: Card,
+    history: Reviews,
     location: CardLocation,
     last_modified: Duration,
+    suspended: IsSuspended,
 }
 
+/// Associated methods
 impl SavedCard {
     pub fn new(card: Card) -> Self {
-        let filename = truncate_string(card.front.clone(), 30);
+        let filename = sanitize(card.front.clone().replace(" ", "_").replace("'", ""));
         let mut path = crate::paths::get_cards_path().join(&filename);
         path.set_extension("toml");
         if path.exists() {
@@ -81,16 +89,122 @@ impl SavedCard {
         Self::from_path(&path)
     }
 
+    fn get_cards_from_categories(cats: Vec<Category>) -> Vec<Self> {
+        let mut cards = vec![];
+
+        for cat in cats {
+            for path in cat.get_containing_card_paths() {
+                let card = Self::from_path(&path);
+                cards.push(card);
+            }
+        }
+
+        cards
+    }
+
+    pub fn get_cards_from_category_recursively(category: &Category) -> Vec<Self> {
+        let categories = category.get_following_categories();
+        Self::get_cards_from_categories(categories)
+    }
+
+    // expensive function!
+    pub fn from_id(id: &Id) -> Option<Self> {
+        let path = cache::path_from_id(*id);
+        Self::from_path(&path).into()
+    }
+
+    pub fn load_all_cards() -> Vec<Self> {
+        let categories = Category::load_all();
+        Self::get_cards_from_categories(categories)
+    }
+
+    pub fn from_path(path: &Path) -> Self {
+        let content = read_to_string(path).expect("Could not read the TOML file");
+        let card: Card = toml::from_str(&content).unwrap();
+        let location = CardLocation::new(path);
+
+        let last_modified = {
+            let system_time = std::fs::metadata(path).unwrap().modified().unwrap();
+            system_time_as_unix_time(system_time)
+        };
+
+        let path = paths::get_review_path().join(card.id.to_string());
+        let s = fs::read_to_string(path).unwrap();
+        let history: Reviews = serde_json::from_str(&s).unwrap();
+
+        Self {
+            card,
+            location,
+            last_modified,
+            history,
+            suspended: IsSuspended::default(),
+        }
+    }
+}
+
+impl SavedCard {
+    fn time_passed_since_last_review(&self) -> Option<Duration> {
+        if current_time() < self.history.0.last()?.timestamp {
+            return Duration::default().into();
+        }
+
+        Some(current_time() - self.history.0.last()?.timestamp)
+    }
+
+    pub fn save_reviews(&self) {
+        let s: String = serde_json::to_string_pretty(self.reviews()).unwrap();
+        let path = paths::get_review_path().join(self.id().to_string());
+        let mut file = fs::File::create(&path).unwrap();
+        file.write_all(&mut s.as_bytes()).unwrap();
+    }
+
     pub fn recall_rate(&self) -> Option<RecallRate> {
-        crate::recall_rate::recall_rate(&self.card)
+        crate::recall_rate::recall_rate(&self.history)
+    }
+
+    pub fn rm_dependency(&mut self, dependency: Id) -> bool {
+        let res = self.card.dependencies.remove(&dependency);
+        self.persist();
+        res
+    }
+
+    pub fn set_dependency(&mut self, dependency: Id) {
+        self.card.dependencies.insert(dependency);
+        self.persist();
+        cache::add_dependent(dependency, self.id());
+    }
+
+    fn is_resolved(&self) -> bool {
+        for id in self.all_dependencies() {
+            if !SavedCard::from_id(&id).unwrap().is_finished() {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    fn all_dependencies(&self) -> Vec<Id> {
+        fn inner(id: Id, deps: &mut Vec<Id>) {
+            let card = SavedCard::from_id(&id);
+
+            for dep in card.unwrap().dependency_ids() {
+                deps.push(*dep);
+                inner(*dep, deps);
+            }
+        }
+
+        let mut deps = vec![];
+
+        inner(self.id(), &mut deps);
+
+        deps
     }
 
     pub fn maturity(&self) -> f32 {
         use gkquad::single::integral;
 
-        let result = integral(|x: f64| x.sin() * (-x * x).exp(), 0.0..1.0)
-            .estimate()
-            .unwrap();
+        let result = integral(|x: f64| x, 0.0..1000.).estimate().unwrap();
 
         result as f32
     }
@@ -99,21 +213,8 @@ impl SavedCard {
         self.card.front.clone()
     }
 
-    pub fn set_priority(&mut self, priority: Priority) {
-        self.card.priority = priority;
-        self.persist();
-    }
-
-    pub fn priority(&self) -> &Priority {
-        &self.card.priority
-    }
-
     pub fn reviews(&self) -> &Vec<Review> {
-        &self.card.history.0
-    }
-
-    pub fn raw_reviews(&self) -> &Reviews {
-        &self.card.history
+        &self.history.0
     }
 
     pub fn last_modified(&self) -> Duration {
@@ -130,11 +231,11 @@ impl SavedCard {
 
     #[allow(dead_code)]
     pub fn is_pending(&self) -> bool {
-        self.card.history.is_empty()
+        self.history.is_empty()
     }
 
     pub fn is_suspended(&self) -> bool {
-        self.card.suspended.is_suspended()
+        self.suspended.is_suspended()
     }
 
     pub fn is_finished(&self) -> bool {
@@ -152,15 +253,11 @@ impl SavedCard {
     }
 
     pub fn time_since_last_review(&self) -> Option<Duration> {
-        self.card.time_passed_since_last_review()
+        self.time_passed_since_last_review()
     }
 
     pub fn back_text(&self) -> &str {
         &self.card.back
-    }
-
-    pub fn contains_tag(&self, tag: &str) -> bool {
-        self.card.tags.contains(tag)
     }
 
     pub fn id(&self) -> Id {
@@ -171,18 +268,8 @@ impl SavedCard {
         &self.card.dependencies
     }
 
-    pub fn set_suspended(&mut self, suspended: IsSuspended) {
-        self.card.suspended = suspended;
-        self.persist();
-    }
-
     pub fn set_finished(&mut self, finished: bool) {
         self.card.finished = finished;
-        self.persist();
-    }
-
-    pub fn insert_tag(&mut self, tag: String) {
-        self.card.tags.insert(tag);
         self.persist();
     }
 
@@ -205,15 +292,6 @@ impl SavedCard {
             Ordering::Equal => false,
             Ordering::Greater => panic!("Card in-memory shouldn't have a last_modified more recent than its corresponding file"),
         }
-    }
-
-    pub fn get_cards_from_category_recursively(category: &Category) -> HashSet<Self> {
-        let mut cards = HashSet::new();
-        let cats = category.get_following_categories();
-        for cat in cats {
-            cards.extend(cat.get_containing_cards());
-        }
-        cards
     }
 
     pub fn search_in_cards<'a>(
@@ -239,46 +317,14 @@ impl SavedCard {
             .collect()
     }
 
-    // expensive function!
-    pub fn from_id(id: &Id) -> Option<Self> {
-        Self::load_all_cards()
-            .into_iter()
-            .find(|card| &card.card.id == id)
-    }
-
-    pub fn load_all_cards() -> HashSet<SavedCard> {
-        Self::get_cards_from_category_recursively(&Category::root())
-    }
-
     pub fn edit_with_vim(&self) -> Self {
         let path = self.as_path();
         open_file_with_vim(path.as_path()).unwrap();
         Self::from_path(path.as_path())
     }
 
-    pub fn from_path(path: &Path) -> Self {
-        let content = read_to_string(path).expect("Could not read the TOML file");
-        let card: Card = toml::from_str(&content).unwrap();
-        let location = CardLocation::new(path);
-
-        let last_modified = {
-            let system_time = std::fs::metadata(path).unwrap().modified().unwrap();
-            system_time_as_unix_time(system_time)
-        };
-
-        Self {
-            card,
-            location,
-            last_modified,
-        }
-    }
-
-    pub fn into_card(self) -> Card {
-        self.card
-    }
-
     // Call this function every time SavedCard is mutated.
-    fn persist(&mut self) {
+    pub fn persist(&mut self) {
         if self.is_outdated() {
             // When you persist, the last_modified in the card should match the ones from the file.
             // This shouldn't be possible, as this function mutates itself to get a fresh copy, so
@@ -301,7 +347,7 @@ impl SavedCard {
 
     pub fn new_review(&mut self, grade: Grade, time: Duration) {
         let review = Review::new(grade, time);
-        self.card.history.add_review(review);
+        self.history.add_review(review);
         self.persist();
     }
 
@@ -311,12 +357,19 @@ impl SavedCard {
             grade,
             time_spent: time,
         };
-        self.card.history.add_review(review);
+        self.history.add_review(review);
     }
 
     pub fn lapses(&self) -> u32 {
-        self.card.history.lapses()
+        self.history.lapses()
     }
+}
+
+fn is_true(b: &bool) -> bool {
+    *b == true
+}
+fn is_false(b: &bool) -> bool {
+    *b == false
 }
 
 #[derive(Ord, PartialOrd, Eq, Hash, PartialEq, Deserialize, Serialize, Debug, Default, Clone)]
@@ -326,20 +379,9 @@ pub struct Card {
     pub id: Id,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub dependencies: BTreeSet<Id>,
-    #[serde(default)]
-    pub suspended: IsSuspended,
-    #[serde(default = "default_finished")]
+    #[serde(default = "default_finished", skip_serializing_if = "is_true")]
     pub finished: bool,
-    #[serde(default, skip_serializing_if = "Priority::is_default")]
-    pub priority: Priority,
-    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    pub tags: BTreeSet<String>,
-    #[serde(default, skip_serializing_if = "Reviews::is_empty")]
-    pub history: Reviews,
 }
-
-use samsvar::json;
-use samsvar::Matcher;
 
 impl Matcher for SavedCard {
     fn get_val(&self, key: &str) -> Option<samsvar::Value> {
@@ -348,10 +390,22 @@ impl Matcher for SavedCard {
             "back" => json!(&self.back_text()),
             "suspended" => json!(&self.is_suspended()),
             "finished" => json!(&self.is_finished()),
+            "resolved" => json!(&self.is_resolved()),
             "id" => json!(&self.id().to_string()),
-            "priority" => json!(self.priority().as_float()),
             "recall" => json!(self.recall_rate().unwrap_or_default()),
+            "dependencies" => json!(self.dependency_ids().len()),
+            "dependents" => {
+                let id = self.id();
+                let mut count: usize = 0;
 
+                for card in SavedCard::load_all_cards() {
+                    if card.dependency_ids().contains(&id) {
+                        count += 1;
+                    }
+                }
+
+                json!(count)
+            }
             _ => return None,
         }
         .into()
@@ -377,150 +431,10 @@ impl Card {
             back,
             id: Uuid::new_v4(),
             finished: true,
-            suspended: IsSuspended::False,
             ..Default::default()
         }
     }
-
-    fn time_passed_since_last_review(&self) -> Option<Duration> {
-        if current_time() < self.history.0.last()?.timestamp {
-            return Duration::default().into();
-        }
-
-        Some(current_time() - self.history.0.last()?.timestamp)
-    }
 }
-
-#[derive(Ord, PartialOrd, Eq, PartialEq, Hash, Deserialize, Serialize, Debug, Default, Clone)]
-#[serde(rename_all = "lowercase")]
-pub enum Grade {
-    // No recall, not even when you saw the answer.
-    #[default]
-    None,
-    // No recall, but you remember the answer when you read it.
-    Late,
-    // Struggled but you got the answer right or somewhat right.
-    Some,
-    // No hesitation, perfect recall.
-    Perfect,
-}
-
-impl Grade {
-    pub fn get_factor(&self) -> f32 {
-        match self {
-            Grade::None => 0.1,
-            Grade::Late => 0.25,
-            Grade::Some => 2.,
-            Grade::Perfect => 3.,
-        }
-        //factor * Self::randomize_factor()
-    }
-}
-
-impl std::str::FromStr for Grade {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "1" => Ok(Self::None),
-            "2" => Ok(Self::Late),
-            "3" => Ok(Self::Some),
-            "4" => Ok(Self::Perfect),
-            _ => Err(()),
-        }
-    }
-}
-
-use crate::common::{
-    open_file_with_vim, serde_duration_as_float_secs, serde_duration_as_secs,
-    system_time_as_unix_time, truncate_string,
-};
-
-#[derive(Ord, PartialOrd, Eq, Hash, PartialEq, Debug, Default, Clone)]
-pub struct Reviews(pub Vec<Review>);
-
-impl Reviews {
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn into_inner(self) -> Vec<Review> {
-        self.0
-    }
-
-    pub fn from_raw(reviews: Vec<Review>) -> Self {
-        Self(reviews)
-    }
-
-    pub fn add_review(&mut self, review: Review) {
-        self.0.push(review);
-    }
-
-    pub fn lapses(&self) -> u32 {
-        self.0.iter().fold(0, |lapses, review| match review.grade {
-            Grade::None | Grade::Late => lapses + 1,
-            Grade::Some | Grade::Perfect => 0,
-        })
-    }
-
-    pub fn time_since_last_review(&self) -> Option<Duration> {
-        self.0.last().map(Review::time_passed)
-    }
-}
-
-impl Serialize for Reviews {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        self.0.serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for Reviews {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let mut reviews = Vec::<Review>::deserialize(deserializer)?;
-        reviews.sort_by_key(|review| review.timestamp);
-        Ok(Reviews(reviews))
-    }
-}
-
-#[derive(Ord, PartialOrd, Eq, PartialEq, Hash, Deserialize, Clone, Serialize, Debug, Default)]
-pub struct Review {
-    // When (unix time) did the review take place?
-    #[serde(with = "serde_duration_as_secs")]
-    pub timestamp: Duration,
-    // Recall grade.
-    pub grade: Grade,
-    // How long you spent before attempting recall.
-    #[serde(with = "serde_duration_as_float_secs")]
-    pub time_spent: Duration,
-}
-
-impl Review {
-    fn new(grade: Grade, time_spent: Duration) -> Self {
-        Self {
-            timestamp: current_time(),
-            grade,
-            time_spent,
-        }
-    }
-
-    fn time_passed(&self) -> Duration {
-        let unix = self.timestamp;
-        let current_unix = current_time();
-        current_unix.checked_sub(unix).unwrap_or_default()
-    }
-}
-
-use serde::de::Deserializer;
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Hash, Debug, Clone)]
 pub enum IsSuspended {
@@ -557,6 +471,10 @@ impl IsSuspended {
 
     pub fn is_suspended(&self) -> bool {
         !matches!(self, IsSuspended::False)
+    }
+
+    pub fn is_not_suspended(&self) -> bool {
+        !self.is_suspended()
     }
 }
 

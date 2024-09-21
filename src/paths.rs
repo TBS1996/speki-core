@@ -1,19 +1,36 @@
-use std::path::PathBuf;
+use std::{
+    fs::{self, create_dir_all},
+    path::PathBuf,
+};
 
-pub fn get_import_csv() -> PathBuf {
-    get_share_path().join("import.csv")
+pub fn get_cache_path() -> PathBuf {
+    let path = dirs::home_dir().unwrap().join(".cache").join("speki");
+    create_dir_all(&path).unwrap();
+    path
+}
+
+pub fn config_dir() -> PathBuf {
+    let path = dirs::home_dir().unwrap().join(".config").join("speki");
+    fs::create_dir_all(&path).unwrap();
+    path
+}
+
+pub fn get_repo_path() -> PathBuf {
+    let path = get_cards_path().join("main");
+    create_dir_all(&path).unwrap();
+    path
+}
+
+pub fn get_review_path() -> PathBuf {
+    let path = get_share_path().join("reviews");
+    create_dir_all(&path).unwrap();
+    path
 }
 
 pub fn get_cards_path() -> PathBuf {
-    get_share_path().join("cards")
-}
-
-pub fn get_ml_path() -> PathBuf {
-    get_share_path().join("ml/")
-}
-
-pub fn get_runmodel_path() -> PathBuf {
-    get_ml_path().join("runmodel.py")
+    let path = get_share_path().join("cards");
+    create_dir_all(&path).unwrap();
+    path
 }
 
 pub fn get_media_path() -> PathBuf {

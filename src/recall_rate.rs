@@ -1,6 +1,9 @@
 use std::time::Duration;
 
-use crate::card::{Card, Grade, RecallRate};
+use crate::{
+    card::{Card, RecallRate},
+    reviews::{Grade, Reviews},
+};
 
 fn new_stability(
     grade: &Grade,
@@ -27,8 +30,8 @@ fn new_stability(
     }
 }
 
-fn stability(card: &Card) -> Option<Duration> {
-    let reviews = &card.history.0;
+fn stability(reviews: &Reviews) -> Option<Duration> {
+    let reviews = &reviews.0;
     if reviews.is_empty() {
         return None;
     }
@@ -48,9 +51,9 @@ fn stability(card: &Card) -> Option<Duration> {
     Some(stability)
 }
 
-pub fn recall_rate(card: &Card) -> Option<RecallRate> {
-    let days_passed = card.history.time_since_last_review()?;
-    let stability = stability(card)?;
+pub fn recall_rate(reviews: &Reviews) -> Option<RecallRate> {
+    let days_passed = dbg!(reviews.time_since_last_review())?;
+    let stability = dbg!(stability(reviews))?;
     Some(calculate_recall_rate(&days_passed, &stability))
 }
 
