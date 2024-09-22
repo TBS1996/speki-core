@@ -40,11 +40,8 @@ pub fn set_finished(id: Id, finished: bool) {
 }
 
 pub fn cards_filtered(filter: String) -> Vec<Id> {
-    dbg!("loading filter cards");
     let mut cards = SavedCard::load_all_cards();
-    dbg!("all cards loaded");
     cards.retain(|card| card.clone().eval(filter.clone()));
-    dbg!("card filtering");
     cards.iter().map(|card| card.id()).collect()
 }
 
