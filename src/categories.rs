@@ -28,7 +28,9 @@ impl Category {
     }
 
     fn from_dir_path(path: &Path) -> Self {
-        let folder = path.strip_prefix(paths::get_cards_path()).unwrap();
+        let paths = paths::get_cards_path();
+        dbg!(&path, &paths);
+        let folder = path.strip_prefix(paths).unwrap();
 
         let components: Vec<String> = Path::new(folder)
             .components()
@@ -45,13 +47,19 @@ impl Category {
     }
 
     pub fn from_card_path(path: &Path) -> Self {
+        dbg!(&path);
         let without_prefix = path.strip_prefix(paths::get_cards_path()).unwrap();
+        dbg!(&without_prefix);
         let folder = without_prefix.parent().unwrap();
-        Self::from_dir_path(&folder)
+        let x: Vec<String> = folder
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().to_string())
+            .collect();
+        dbg!(Self(x))
     }
 
     pub fn get_containing_card_paths(&self) -> Vec<PathBuf> {
-        let directory = self.as_path();
+        let directory = dbg!(self.as_path());
         let mut paths = vec![];
 
         for entry in std::fs::read_dir(directory).unwrap() {

@@ -18,12 +18,12 @@ pub fn add_dependent(card: Id, dependent: Id) {
     info.save(card);
 }
 
-pub fn path_from_id(id: Id) -> PathBuf {
+pub fn path_from_id(id: Id) -> Option<PathBuf> {
     match CacheInfo::load_and_verify(id) {
-        Some(info) => info.path,
+        Some(info) => Some(info.path),
         None => {
             sync_cache();
-            CacheInfo::load_and_verify(id).unwrap().path
+            CacheInfo::load_and_verify(id)?.path.into()
         }
     }
 }

@@ -96,6 +96,7 @@ impl SavedCard {
 
         for cat in cats {
             for path in cat.get_containing_card_paths() {
+                dbg!(&path);
                 let card = Self::from_path(&path);
                 cards.push(card);
             }
@@ -111,28 +112,38 @@ impl SavedCard {
 
     // expensive function!
     pub fn from_id(id: &Id) -> Option<Self> {
-        let path = cache::path_from_id(*id);
+        let path = cache::path_from_id(*id)?;
         Self::from_path(&path).into()
     }
 
     pub fn load_all_cards() -> Vec<Self> {
-        let categories = Category::load_all();
+        let categories = dbg!(Category::load_all());
         Self::get_cards_from_categories(categories)
     }
 
     pub fn from_path(path: &Path) -> Self {
+        dbg!(&path);
         let content = read_to_string(path).expect("Could not read the TOML file");
         let card: Card = toml::from_str(&content).unwrap();
         let location = CardLocation::new(path);
+        dbg!();
 
         let last_modified = {
             let system_time = std::fs::metadata(path).unwrap().modified().unwrap();
             system_time_as_unix_time(system_time)
         };
+        dbg!();
 
-        let path = paths::get_review_path().join(card.id.to_string());
-        let s = fs::read_to_string(path).unwrap();
-        let history: Reviews = serde_json::from_str(&s).unwrap();
+        let history: Reviews = {
+            let path = paths::get_review_path().join(card.id.to_string());
+            if path.exists() {
+                let s = fs::read_to_string(path).unwrap();
+                serde_json::from_str(&s).unwrap()
+            } else {
+                Default::default()
+            }
+        };
+        dbg!();
 
         Self {
             card,
@@ -178,8 +189,10 @@ impl SavedCard {
 
     fn is_resolved(&self) -> bool {
         for id in self.all_dependencies() {
-            if !SavedCard::from_id(&id).unwrap().is_finished() {
-                return false;
+            if let Some(card) = SavedCard::from_id(&id) {
+                if !card.is_finished() {
+                    return false;
+                }
             }
         }
 
@@ -188,9 +201,11 @@ impl SavedCard {
 
     fn all_dependencies(&self) -> Vec<Id> {
         fn inner(id: Id, deps: &mut Vec<Id>) {
-            let card = SavedCard::from_id(&id);
+            let Some(card) = SavedCard::from_id(&id) else {
+                return;
+            };
 
-            for dep in card.unwrap().dependency_ids() {
+            for dep in card.dependency_ids() {
                 deps.push(*dep);
                 inner(*dep, deps);
             }

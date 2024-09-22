@@ -188,8 +188,32 @@ mod graphviz {
                 .replace(")", "")
                 .replace("(", "");
 
-            // Enclose card ID in quotes to avoid syntax issues
-            dot.push_str(&format!("    \"{}\" [label=\"{}\"];\n", card.id(), label));
+            let color = match card.recall_rate() {
+                _ if !card.is_finished() => yellow_color(),
+                Some(rate) => rate_to_color(rate as f64 * 100.),
+                None => cyan_color(),
+            };
+
+            match card.recall_rate() {
+                Some(rate) => {
+                    let recall_rate = rate * 100.;
+                    dot.push_str(&format!(
+                        "    \"{}\" [label=\"{} ({:.0}%)\", style=filled, fillcolor=\"{}\"];\n",
+                        card.id(),
+                        label,
+                        recall_rate,
+                        color
+                    ));
+                }
+                None => {
+                    dot.push_str(&format!(
+                        "    \"{}\" [label=\"{} \", style=filled, fillcolor=\"{}\"];\n",
+                        card.id(),
+                        label,
+                        color
+                    ));
+                }
+            }
 
             // Create edges for dependencies, also enclosing IDs in quotes
             for &child_id in card.dependency_ids() {
@@ -199,5 +223,20 @@ mod graphviz {
 
         dot.push_str("}\n");
         dot
+    }
+
+    // Convert recall rate to a color, from red to green
+    fn rate_to_color(rate: f64) -> String {
+        let red = ((1.0 - rate / 100.0) * 255.0) as u8;
+        let green = (rate / 100.0 * 255.0) as u8;
+        format!("#{:02X}{:02X}00", red, green) // RGB color in hex
+    }
+
+    fn cyan_color() -> String {
+        String::from("#00FFFF")
+    }
+
+    fn yellow_color() -> String {
+        String::from("#FFFF00")
     }
 }
