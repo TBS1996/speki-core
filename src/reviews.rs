@@ -1,7 +1,5 @@
-use crate::common::{
-    serde_duration_as_float_secs, serde_duration_as_secs,
-};
 use crate::common::current_time;
+use crate::common::{serde_duration_as_float_secs, serde_duration_as_secs};
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize, Serializer};
 use std::time::Duration;
@@ -38,7 +36,6 @@ impl Reviews {
     }
 
     pub fn time_since_last_review(&self) -> Option<Duration> {
-        dbg!(&self);
         self.0.last().map(Review::time_passed)
     }
 }
