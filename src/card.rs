@@ -96,7 +96,6 @@ impl SavedCard {
 
         for cat in cats {
             for path in cat.get_containing_card_paths() {
-                dbg!(&path);
                 let card = Self::from_path(&path);
                 cards.push(card);
             }
@@ -117,22 +116,19 @@ impl SavedCard {
     }
 
     pub fn load_all_cards() -> Vec<Self> {
-        let categories = dbg!(Category::load_all());
+        let categories = Category::load_all();
         Self::get_cards_from_categories(categories)
     }
 
     pub fn from_path(path: &Path) -> Self {
-        dbg!(&path);
         let content = read_to_string(path).expect("Could not read the TOML file");
         let card: Card = toml::from_str(&content).unwrap();
         let location = CardLocation::new(path);
-        dbg!();
 
         let last_modified = {
             let system_time = std::fs::metadata(path).unwrap().modified().unwrap();
             system_time_as_unix_time(system_time)
         };
-        dbg!();
 
         let history: Reviews = {
             let path = paths::get_review_path().join(card.id.to_string());
@@ -143,7 +139,6 @@ impl SavedCard {
                 Default::default()
             }
         };
-        dbg!();
 
         Self {
             card,

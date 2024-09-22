@@ -645,7 +645,9 @@ dependencies = [
 
 [[package]]
 name = "samsvar"
-version = "0.1.1"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f48ff468821313dc48253ff36bcbb08e5c1cdbb4838b842d2743becfba0a726"
 dependencies = [
  "nom",
  "serde_json",
@@ -727,7 +729,7 @@ checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
 
 [[package]]
 name = "speki-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dirs",
  "git2",
