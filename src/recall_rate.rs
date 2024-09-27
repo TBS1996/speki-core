@@ -2,11 +2,11 @@ use std::time::Duration;
 
 use crate::{
     card::RecallRate,
-    reviews::{Grade, Reviews},
+    reviews::{Recall, Reviews},
 };
 
 fn new_stability(
-    grade: &Grade,
+    grade: &Recall,
     time_passed: Option<Duration>,
     current_stability: Duration,
 ) -> Duration {

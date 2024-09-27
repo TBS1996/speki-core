@@ -1,8 +1,9 @@
 use crate::cache;
 use crate::categories::Category;
+use crate::collections::Collection;
 use crate::common::{open_file_with_vim, system_time_as_unix_time};
 use crate::paths;
-use crate::reviews::{Grade, Review, Reviews};
+use crate::reviews::{Recall, Review, Reviews};
 use crate::{common::current_time, common::Id};
 use samsvar::json;
 use samsvar::Matcher;
@@ -104,19 +105,19 @@ impl SavedCard {
         cards
     }
 
-    pub fn get_cards_from_category_recursively(category: &Category) -> Vec<Self> {
-        let categories = category.get_following_categories();
-        Self::get_cards_from_categories(categories)
-    }
-
-    // expensive function!
+    // potentially expensive function!
     pub fn from_id(id: &Id) -> Option<Self> {
         let path = cache::path_from_id(*id)?;
         Self::from_path(&path).into()
     }
 
     pub fn load_all_cards() -> Vec<Self> {
-        let categories = Category::load_all();
+        let collections = Collection::load_all();
+        let mut categories = vec![];
+        for col in collections {
+            categories.extend(Category::load_all(&col.path()));
+        }
+
         Self::get_cards_from_categories(categories)
     }
 
@@ -134,7 +135,7 @@ impl SavedCard {
             let path = paths::get_review_path().join(card.id.to_string());
             if path.exists() {
                 let s = fs::read_to_string(path).unwrap();
-                serde_json::from_str(&s).unwrap()
+                Reviews::from_str(&s)
             } else {
                 Default::default()
             }
@@ -151,6 +152,13 @@ impl SavedCard {
 }
 
 impl SavedCard {
+    pub fn save_new_reviews(&self) {
+        if self.history.is_empty() {
+            return;
+        }
+        self.history.save(self.id());
+    }
+
     fn time_passed_since_last_review(&self) -> Option<Duration> {
         if current_time() < self.history.0.last()?.timestamp {
             return Duration::default().into();
@@ -328,19 +336,20 @@ impl SavedCard {
             panic!("{msg}");
         }
 
+        self.history.save(self.id());
         let toml = toml::to_string(&self.card).unwrap();
 
         std::fs::write(&path, toml).unwrap();
         *self = SavedCard::from_path(path.as_path())
     }
 
-    pub fn new_review(&mut self, grade: Grade, time: Duration) {
+    pub fn new_review(&mut self, grade: Recall, time: Duration) {
         let review = Review::new(grade, time);
         self.history.add_review(review);
         self.persist();
     }
 
-    pub fn fake_new_review(&mut self, grade: Grade, time: Duration, at_time: Duration) {
+    pub fn fake_new_review(&mut self, grade: Recall, time: Duration, at_time: Duration) {
         let review = Review {
             timestamp: at_time,
             grade,

@@ -1,6 +1,7 @@
 pub mod cache;
 pub mod card;
 pub mod categories;
+pub mod collections;
 pub mod common;
 pub mod config;
 pub mod git;
@@ -13,7 +14,7 @@ use common::Id;
 use config::Config;
 use git::Repos;
 use paths::get_repo_path;
-use reviews::Grade;
+use reviews::Recall;
 use samsvar::Matcher;
 
 pub fn load_cards() -> Vec<Id> {
@@ -56,7 +57,7 @@ pub fn add_unfinished(front: String) -> Id {
     SavedCard::new(card).id()
 }
 
-pub fn review(card_id: Id, grade: Grade) {
+pub fn review(card_id: Id, grade: Recall) {
     let mut card = SavedCard::from_id(&card_id).unwrap();
     card.new_review(grade, Default::default());
 }

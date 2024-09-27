@@ -70,8 +70,8 @@ impl Category {
         paths
     }
 
-    pub fn get_following_categories(&self) -> Vec<Self> {
-        let categories = Category::load_all();
+    pub fn get_following_categories(&self, root: &Path) -> Vec<Self> {
+        let categories = Category::load_all(root);
         let catlen = self.0.len();
         categories
             .into_iter()
@@ -101,9 +101,8 @@ impl Category {
         entry.file_type().is_dir() && !entry.file_name().to_string_lossy().starts_with(".")
     }
 
-    pub fn load_all() -> Vec<Self> {
+    pub fn load_all(root: &Path) -> Vec<Self> {
         let mut output = vec![];
-        let root = get_cards_path();
         use walkdir::WalkDir;
 
         for entry in WalkDir::new(&root)
