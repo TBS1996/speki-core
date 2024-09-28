@@ -1,6 +1,7 @@
 use serde::de::Visitor;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::collections::Collection;
 use crate::paths::{self, get_cards_path};
 use std::path::Path;
 use std::path::PathBuf;
@@ -10,17 +11,14 @@ use std::path::PathBuf;
 pub struct Category(pub Vec<String>);
 
 impl Category {
-    pub fn root() -> Self {
-        Self::default()
-    }
-
-    pub fn private() -> Self {
-        Self::root().join("personal")
-    }
-
     pub fn join(mut self, s: &str) -> Self {
         self.0.push(s.to_string());
         self
+    }
+
+    /// Represents the top level of a collection
+    fn root() -> Self {
+        Self::default()
     }
 
     pub fn joined(&self) -> String {
@@ -70,8 +68,8 @@ impl Category {
         paths
     }
 
-    pub fn get_following_categories(&self, root: &Path) -> Vec<Self> {
-        let categories = Category::load_all(root);
+    pub fn get_following_categories(&self, collection: &Collection) -> Vec<Self> {
+        let categories = Category::load_all(collection);
         let catlen = self.0.len();
         categories
             .into_iter()
@@ -101,11 +99,11 @@ impl Category {
         entry.file_type().is_dir() && !entry.file_name().to_string_lossy().starts_with(".")
     }
 
-    pub fn load_all(root: &Path) -> Vec<Self> {
+    pub fn load_all(collection: &Collection) -> Vec<Self> {
         let mut output = vec![];
         use walkdir::WalkDir;
 
-        for entry in WalkDir::new(&root)
+        for entry in WalkDir::new(collection.path())
             .into_iter()
             .filter_entry(|e| Self::is_visible_dir(e))
             .filter_map(Result::ok)

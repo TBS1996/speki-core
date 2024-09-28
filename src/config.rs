@@ -1,5 +1,5 @@
 use crate::{
-    git::Repo,
+    collections::Collection,
     paths::{self, get_share_path},
 };
 use serde::{Deserialize, Serialize};
@@ -8,6 +8,21 @@ use std::{
     io::{Read, Write},
     path::PathBuf,
 };
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Repo {
+    name: String,
+    remote: String,
+}
+
+impl Repo {
+    pub fn new(name: impl Into<String>, remote: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            remote: remote.into(),
+        }
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
@@ -42,7 +57,15 @@ impl Config {
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
         let config: Config = toml::from_str(&contents).expect("Failed to deserialize config");
+        config.apply();
         Ok(config)
+    }
+
+    pub fn apply(&self) {
+        for repo in &self.collections {
+            let col = Collection::load_or_create(&repo.name);
+            col.set_remote(&repo.remote);
+        }
     }
 }
 

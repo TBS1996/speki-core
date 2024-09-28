@@ -74,7 +74,7 @@ pub struct SavedCard {
 impl SavedCard {
     pub fn new(card: Card) -> Self {
         let filename = sanitize(card.front.clone().replace(" ", "_").replace("'", ""));
-        let dir = Category::private().as_path();
+        let dir = Collection::default().path();
         create_dir_all(&dir).unwrap();
         let mut path = dir.join(&filename);
         path.set_extension("toml");
@@ -115,7 +115,8 @@ impl SavedCard {
         let collections = Collection::load_all();
         let mut categories = vec![];
         for col in collections {
-            categories.extend(Category::load_all(&col.path()));
+            let cats = col.load_categories();
+            categories.extend(cats);
         }
 
         Self::get_cards_from_categories(categories)
