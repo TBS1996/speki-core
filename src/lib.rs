@@ -4,6 +4,7 @@ pub mod categories;
 pub mod collections;
 pub mod common;
 pub mod config;
+pub mod github;
 pub mod paths;
 pub mod recall_rate;
 pub mod reviews;

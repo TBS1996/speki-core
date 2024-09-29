@@ -81,10 +81,6 @@ impl CacheInfo {
 
     fn load_and_verify(id: Id) -> Option<CacheInfo> {
         let info = Self::load(id)?;
-        if info.path.exists() {
-            Some(info)
-        } else {
-            None
-        }
+        info.path.exists().then_some(info)
     }
 }

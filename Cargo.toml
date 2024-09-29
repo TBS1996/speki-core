@@ -1,6 +1,6 @@
 [package]
 name = "speki-core"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 authors = ["tor torberge@outlook.com"]
 description = "core functionality of speki"
@@ -14,7 +14,7 @@ dirs = "5.0.1"
 samsvar = "0.1.2"
 gkquad = "0.0.4"
 serde_json = "1.0.128"
-tokio = "1.40.0"
+tokio = { version = "1.40.0", features = ["full"] }
 toml = "0.8.19"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 sanitize-filename = "0.5.0"
@@ -22,3 +22,5 @@ graphviz-rust = "0.9.0"
 git2 = "0.19.0"
 url = "2.5.2"
 walkdir = "2.5.0"
+octocrab = "0.40.0"
+ureq = { version = "2.10.1", features = ["json"] }
