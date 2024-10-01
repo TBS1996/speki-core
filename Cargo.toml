@@ -1,6 +1,6 @@
 [package]
 name = "speki-core"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 authors = ["tor torberge@outlook.com"]
 description = "core functionality of speki"
@@ -24,3 +24,4 @@ url = "2.5.2"
 walkdir = "2.5.0"
 octocrab = "0.40.0"
 ureq = { version = "2.10.1", features = ["json"] }
+futures = "0.3"

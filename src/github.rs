@@ -1,3 +1,4 @@
+use crate::collections::Collection;
 use crate::paths::get_share_path;
 use serde::Deserialize;
 use serde::Serialize;
@@ -27,7 +28,7 @@ pub fn request_device_code() -> Result<DeviceResponse, Error> {
     Ok(response)
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LoginInfo {
     pub access_token: String,
     pub token_type: String,
@@ -123,4 +124,29 @@ fn get_user_info(access_token: &str) -> GitHubUser {
         .unwrap();
 
     response.into_json().unwrap()
+}
+
+pub fn new_repo_col(login: &LoginInfo, repo_name: &str, private: bool) {
+    make_github_repo(login, repo_name, private).unwrap();
+    let col = Collection::create(repo_name);
+    let url = format!("https://github.com/{}/{}.git", &login.login, repo_name);
+    col.set_remote(&url);
+}
+
+fn make_github_repo(
+    login: &LoginInfo,
+    repo_name: &str,
+    private: bool,
+) -> Result<ureq::Response, ureq::Error> {
+    let repo_data = serde_json::json!({
+        "name": repo_name,
+        "private": private
+    });
+
+    let response = ureq::post("https://api.github.com/user/repos")
+        .set("Authorization", &format!("token {}", &login.access_token))
+        .set("Accept", "application/vnd.github.v3+json")
+        .send_json(repo_data);
+
+    response
 }

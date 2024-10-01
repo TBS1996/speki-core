@@ -1513,9 +1513,10 @@ dependencies = [
 
 [[package]]
 name = "speki-core"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "dirs",
+ "futures",
  "git2",
  "gkquad",
  "graphviz-rust",

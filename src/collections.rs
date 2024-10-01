@@ -8,7 +8,7 @@ use git2::{
     Cred, FetchOptions, IndexAddOption, PushOptions, RemoteCallbacks, Repository, Signature,
 };
 
-use crate::{categories::Category, paths::get_cards_path};
+use crate::{categories::Category, github::LoginInfo, paths::get_cards_path};
 
 pub struct Collection {
     name: String,
@@ -71,6 +71,9 @@ impl Collection {
 
     pub fn set_remote(&self, url: &str) {
         self.repo.remote_set_url("origin", url).unwrap();
+        self.repo
+            .remote_add_push("origin", "refs/heads/*:refs/remotes/origin/*")
+            .unwrap();
     }
 
     pub fn load(name: &str) -> Option<Self> {
@@ -100,12 +103,8 @@ impl Collection {
         let mut remote = self.repo.find_remote("origin").unwrap();
         let mut callbacks = RemoteCallbacks::new();
 
-        callbacks.credentials(|_url, username_from_url, _allowed_types| {
-            if let Some(username) = username_from_url {
-                Cred::ssh_key_from_agent(username)
-            } else {
-                Cred::default()
-            }
+        callbacks.credentials(|_url, _username_from_url, _allowed_types| {
+            Cred::userpass_plaintext("oauth2", &LoginInfo::load().unwrap().access_token)
         });
 
         let mut fetch_options = FetchOptions::new();
@@ -196,14 +195,8 @@ impl Collection {
         let mut remote = self.repo.find_remote("origin")?;
 
         let mut callbacks = RemoteCallbacks::new();
-        callbacks.credentials(|_url, username_from_url, _allowed_types| {
-            if let Some(username) = username_from_url {
-                // Use SSH credentials from ssh-agent
-                Cred::ssh_key_from_agent(username)
-            } else {
-                // Fallback to default credentials if username isn't provided
-                Cred::default()
-            }
+        callbacks.credentials(|_url, _username_from_url, _allowed_types| {
+            Cred::userpass_plaintext("oauth2", &LoginInfo::load().unwrap().access_token)
         });
 
         let mut push_options = PushOptions::new();
