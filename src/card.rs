@@ -239,7 +239,7 @@ impl SavedCard {
         let result = integral(
             |x: f64| {
                 self.recall_rate_at(now + Duration::from_secs_f64(x * 86400.))
-                    .unwrap() as f64
+                    .unwrap_or_default() as f64
             },
             0.0..1000.,
         )
