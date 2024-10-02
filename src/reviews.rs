@@ -77,8 +77,8 @@ impl Reviews {
         })
     }
 
-    pub fn time_since_last_review(&self) -> Option<Duration> {
-        self.0.last().map(Review::time_passed)
+    pub fn time_since_last_review(&self, current_unix: Duration) -> Option<Duration> {
+        self.0.last().map(|review| review.time_passed(current_unix))
     }
 }
 
@@ -103,9 +103,8 @@ impl Review {
         }
     }
 
-    pub fn time_passed(&self) -> Duration {
+    pub fn time_passed(&self, current_unix: Duration) -> Duration {
         let unix = self.timestamp;
-        let current_unix = current_time();
         current_unix.checked_sub(unix).unwrap_or_default()
     }
 }

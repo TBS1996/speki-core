@@ -72,9 +72,9 @@ pub struct SavedCard {
 
 /// Associated methods
 impl SavedCard {
-    pub fn new(card: Card) -> Self {
+    pub fn new_at(card: Card, category: &Category) -> Self {
         let filename = sanitize(card.front.clone().replace(" ", "_").replace("'", ""));
-        let dir = Collection::default().path();
+        let dir = category.as_path();
         create_dir_all(&dir).unwrap();
         let mut path = dir.join(&filename);
         path.set_extension("toml");
@@ -90,6 +90,9 @@ impl SavedCard {
         file.write_all(&mut s.as_bytes()).unwrap();
 
         Self::from_path(&path)
+    }
+    pub fn new(card: Card) -> Self {
+        Self::new_at(card, &Category::default())
     }
 
     fn get_cards_from_categories(cats: Vec<Category>) -> Vec<Self> {
@@ -119,7 +122,7 @@ impl SavedCard {
             categories.extend(cats);
         }
 
-        Self::get_cards_from_categories(categories)
+        Self::get_cards_from_categories(categories.clone())
     }
 
     pub fn from_path(path: &Path) -> Self {
@@ -175,8 +178,12 @@ impl SavedCard {
         file.write_all(&mut s.as_bytes()).unwrap();
     }
 
+    pub fn recall_rate_at(&self, current_unix: Duration) -> Option<RecallRate> {
+        crate::recall_rate::recall_rate(&self.history, current_unix)
+    }
     pub fn recall_rate(&self) -> Option<RecallRate> {
-        crate::recall_rate::recall_rate(&self.history)
+        let now = current_time();
+        crate::recall_rate::recall_rate(&self.history, now)
     }
 
     pub fn rm_dependency(&mut self, dependency: Id) -> bool {
@@ -225,7 +232,16 @@ impl SavedCard {
     pub fn maturity(&self) -> f32 {
         use gkquad::single::integral;
 
-        let result = integral(|x: f64| x, 0.0..1000.).estimate().unwrap();
+        let now = current_time();
+        let result = integral(
+            |x: f64| {
+                self.recall_rate_at(now + Duration::from_secs_f64(x * 86400.))
+                    .unwrap() as f64
+            },
+            0.0..1000.,
+        )
+        .estimate()
+        .unwrap();
 
         result as f32
     }
@@ -302,6 +318,7 @@ impl SavedCard {
     pub fn is_outdated(&self) -> bool {
         let file_last_modified = {
             let path = self.as_path();
+            dbg!(&path);
             let system_time = std::fs::metadata(path).unwrap().modified().unwrap();
             system_time_as_unix_time(system_time)
         };
@@ -389,6 +406,37 @@ impl Matcher for SavedCard {
             "resolved" => json!(&self.is_resolved()),
             "id" => json!(&self.id().to_string()),
             "recall" => json!(self.recall_rate().unwrap_or_default()),
+            "stability" => json!(self.maturity()),
+            "lastreview" => json!(
+                self.time_since_last_review()
+                    .unwrap_or_else(|| Duration::MAX)
+                    .as_secs_f32()
+                    / 86400.
+            ),
+            "minrecrecall" => {
+                let mut min_stability = usize::MAX;
+                let cards = self.all_dependencies();
+                for id in cards {
+                    let stab = (SavedCard::from_id(&id)
+                        .unwrap()
+                        .recall_rate()
+                        .unwrap_or_default()
+                        * 1000.) as usize;
+                    min_stability = min_stability.min(stab);
+                }
+
+                json!(min_stability as f32 / 1000.)
+            }
+            "minrecstab" => {
+                let mut min_recall = usize::MAX;
+                let cards = self.all_dependencies();
+                for id in cards {
+                    let stab = (SavedCard::from_id(&id).unwrap().maturity() * 1000.) as usize;
+                    min_recall = min_recall.min(stab);
+                }
+
+                json!(min_recall as f32 / 1000.)
+            }
             "dependencies" => json!(self.dependency_ids().len()),
             "dependents" => {
                 let id = self.id();

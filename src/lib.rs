@@ -10,6 +10,7 @@ pub mod recall_rate;
 pub mod reviews;
 
 pub use card::SavedCard;
+use categories::Category;
 use common::Id;
 use reviews::Recall;
 use samsvar::Matcher;
@@ -37,15 +38,15 @@ pub fn cards_filtered(filter: String) -> Vec<Id> {
     cards.iter().map(|card| card.id()).collect()
 }
 
-pub fn add_card(front: String, back: String) -> Id {
+pub fn add_card(front: String, back: String, cat: &Category) -> Id {
     let card = card::Card::new_simple(front, back);
-    SavedCard::new(card).id()
+    SavedCard::new_at(card, cat).id()
 }
 
-pub fn add_unfinished(front: String) -> Id {
+pub fn add_unfinished(front: String, category: &Category) -> Id {
     let mut card = card::Card::new_simple(front, "".to_string());
     card.finished = false;
-    SavedCard::new(card).id()
+    SavedCard::new_at(card, category).id()
 }
 
 pub fn review(card_id: Id, grade: Recall) {

@@ -1,18 +1,27 @@
-use serde::de::Visitor;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
 use crate::collections::Collection;
 use crate::paths::{self, get_cards_path};
 use std::path::Path;
 use std::path::PathBuf;
 
 // Represent the category that a card is in, can be nested
-#[derive(Ord, PartialOrd, Eq, Hash, Debug, Clone, Default, PartialEq)]
-pub struct Category(pub Vec<String>);
+#[derive(Ord, PartialOrd, Eq, Hash, Debug, Clone, PartialEq)]
+pub struct Category {
+    collection: String,
+    dir: Vec<String>,
+}
+
+impl Default for Category {
+    fn default() -> Self {
+        Self {
+            collection: Collection::default().name().to_owned(),
+            dir: Default::default(),
+        }
+    }
+}
 
 impl Category {
     pub fn join(mut self, s: &str) -> Self {
-        self.0.push(s.to_string());
+        self.dir.push(s.to_string());
         self
     }
 
@@ -22,11 +31,11 @@ impl Category {
     }
 
     pub fn joined(&self) -> String {
-        self.0.join("/")
+        self.dir.join("/")
     }
 
-    fn from_dir_path(path: &Path) -> Self {
-        let paths = paths::get_cards_path();
+    fn from_dir_path(path: &Path, collection: &Collection) -> Self {
+        let paths = paths::get_cards_path().join(collection.name().to_owned());
         let folder = path.strip_prefix(paths).unwrap();
 
         let components: Vec<String> = Path::new(folder)
@@ -34,7 +43,10 @@ impl Category {
             .filter_map(|component| component.as_os_str().to_str().map(String::from))
             .collect();
 
-        let categories = Self(components);
+        let categories = Self {
+            dir: components,
+            collection: collection.name().to_owned(),
+        };
 
         if categories.as_path().exists() {
             categories
@@ -44,13 +56,27 @@ impl Category {
     }
 
     pub fn from_card_path(path: &Path) -> Self {
+        let path = path.parent().unwrap().to_owned();
         let without_prefix = path.strip_prefix(paths::get_cards_path()).unwrap();
-        let folder = without_prefix.parent().unwrap();
-        let x: Vec<String> = folder
-            .components()
-            .map(|c| c.as_os_str().to_string_lossy().to_string())
-            .collect();
-        Self(x)
+        let mut components = without_prefix.components();
+        let col_name = components
+            .next()
+            .unwrap()
+            .as_os_str()
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        let mut dirs = vec![];
+
+        for c in components {
+            dirs.push(c.as_os_str().to_string_lossy().to_string());
+        }
+
+        Self {
+            collection: col_name,
+            dir: dirs,
+        }
     }
 
     pub fn get_containing_card_paths(&self) -> Vec<PathBuf> {
@@ -70,15 +96,15 @@ impl Category {
 
     pub fn get_following_categories(&self, collection: &Collection) -> Vec<Self> {
         let categories = Category::load_all(collection);
-        let catlen = self.0.len();
+        let catlen = self.dir.len();
         categories
             .into_iter()
-            .filter(|cat| cat.0.len() >= catlen && cat.0[0..catlen] == self.0[0..catlen])
+            .filter(|cat| cat.dir.len() >= catlen && cat.dir[0..catlen] == self.dir[0..catlen])
             .collect()
     }
 
     pub fn print_it(&self) -> String {
-        self.0.last().unwrap_or(&"root".to_string()).clone()
+        self.dir.last().unwrap_or(&"root".to_string()).clone()
     }
 
     pub fn print_full(&self) -> String {
@@ -89,7 +115,7 @@ impl Category {
 
     pub fn print_it_with_depth(&self) -> String {
         let mut s = String::new();
-        for _ in 0..self.0.len() {
+        for _ in 0..self.dir.len() {
             s.push_str("  ");
         }
         format!("{}{}", s, self.print_it())
@@ -108,7 +134,7 @@ impl Category {
             .filter_entry(|e| Self::is_visible_dir(e))
             .filter_map(Result::ok)
         {
-            let cat = Self::from_dir_path(entry.path());
+            let cat = Self::from_dir_path(entry.path(), collection);
             if cat != Self::root() {
                 output.push(cat);
             }
@@ -118,12 +144,17 @@ impl Category {
     }
 
     pub fn as_path(&self) -> PathBuf {
-        let categories = self.0.join("/");
-        let path = format!("{}/{}", get_cards_path().to_string_lossy(), categories);
+        let categories = self.dir.join("/");
+        let path = format!(
+            "{}/{}",
+            get_cards_path().join(&self.collection).to_string_lossy(),
+            categories
+        );
         PathBuf::from(path)
     }
 }
 
+/*
 impl Serialize for Category {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -159,3 +190,5 @@ impl<'de> Deserialize<'de> for Category {
         deserializer.deserialize_str(StringVisitor)
     }
 }
+
+*/

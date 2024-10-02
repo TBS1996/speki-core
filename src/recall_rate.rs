@@ -51,8 +51,8 @@ fn stability(reviews: &Reviews) -> Option<Duration> {
     Some(stability)
 }
 
-pub fn recall_rate(reviews: &Reviews) -> Option<RecallRate> {
-    let days_passed = reviews.time_since_last_review()?;
+pub fn recall_rate(reviews: &Reviews, current_unix: Duration) -> Option<RecallRate> {
+    let days_passed = reviews.time_since_last_review(current_unix)?;
     let stability = stability(reviews)?;
     Some(calculate_recall_rate(&days_passed, &stability))
 }
