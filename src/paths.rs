@@ -15,14 +15,14 @@ pub fn config_dir() -> PathBuf {
     path
 }
 
-pub fn get_repo_path() -> PathBuf {
-    let path = get_cards_path().join("main");
+pub fn get_review_path() -> PathBuf {
+    let path = get_share_path().join("reviews");
     create_dir_all(&path).unwrap();
     path
 }
 
-pub fn get_review_path() -> PathBuf {
-    let path = get_share_path().join("reviews");
+pub fn get_collections_path() -> PathBuf {
+    let path = get_share_path().join("collections");
     create_dir_all(&path).unwrap();
     path
 }

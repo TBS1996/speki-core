@@ -8,7 +8,7 @@ use git2::{
     Cred, FetchOptions, IndexAddOption, PushOptions, RemoteCallbacks, Repository, Signature,
 };
 
-use crate::{categories::Category, github::LoginInfo, paths::get_cards_path};
+use crate::{categories::Category, github::LoginInfo, paths::get_collections_path};
 
 pub struct Collection {
     name: String,
@@ -43,7 +43,7 @@ pub fn get_dirs(p: &Path) -> Vec<PathBuf> {
 
 impl Collection {
     pub fn load_all() -> Vec<Self> {
-        let dirs = get_dirs(&get_cards_path());
+        let dirs = get_dirs(&get_collections_path());
         let mut names = vec![];
         for dir in &dirs {
             let name = dir.file_name().unwrap().to_str().unwrap();
@@ -77,7 +77,7 @@ impl Collection {
     }
 
     pub fn load(name: &str) -> Option<Self> {
-        let path = get_cards_path().join(name);
+        let path = get_collections_path().join(name);
         if !path.exists() {
             return None;
         }
@@ -151,7 +151,7 @@ impl Collection {
     }
 
     pub fn create(name: &str) -> Self {
-        let path = get_cards_path().join(name);
+        let path = get_collections_path().join(name);
         create_dir_all(&path).unwrap();
         let repo = Repository::init(path).unwrap();
 
@@ -215,11 +215,11 @@ impl Collection {
     }
 
     pub fn load_categories(&self) -> Vec<Category> {
-        Category::load_all(self)
+        Category::load_all(Some(self))
     }
 
     pub fn path(&self) -> PathBuf {
-        get_cards_path().join(&self.name)
+        get_collections_path().join(&self.name)
     }
 
     pub fn name(&self) -> &str {

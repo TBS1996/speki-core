@@ -79,7 +79,8 @@ impl SavedCard {
         let mut path = dir.join(&filename);
         path.set_extension("toml");
         if path.exists() {
-            path = crate::paths::get_cards_path().join(&card.id.to_string());
+            let dir = category.as_path();
+            path = dir.join(&card.id.to_string());
             path.set_extension("toml");
         };
 
@@ -121,6 +122,8 @@ impl SavedCard {
             let cats = col.load_categories();
             categories.extend(cats);
         }
+
+        categories.extend(Category::load_all(None));
 
         Self::get_cards_from_categories(categories.clone())
     }

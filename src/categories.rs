@@ -1,22 +1,13 @@
 use crate::collections::Collection;
-use crate::paths::{self, get_cards_path};
+use crate::paths::{self};
 use std::path::Path;
 use std::path::PathBuf;
 
 // Represent the category that a card is in, can be nested
-#[derive(Ord, PartialOrd, Eq, Hash, Debug, Clone, PartialEq)]
+#[derive(Ord, PartialOrd, Eq, Hash, Debug, Clone, PartialEq, Default)]
 pub struct Category {
-    collection: String,
+    collection: Option<String>,
     dir: Vec<String>,
-}
-
-impl Default for Category {
-    fn default() -> Self {
-        Self {
-            collection: Collection::default().name().to_owned(),
-            dir: Default::default(),
-        }
-    }
 }
 
 impl Category {
@@ -25,27 +16,44 @@ impl Category {
         self
     }
 
-    /// Represents the top level of a collection
-    fn root() -> Self {
-        Self::default()
-    }
-
     pub fn joined(&self) -> String {
         self.dir.join("/")
     }
 
-    fn from_dir_path(path: &Path, collection: &Collection) -> Self {
-        let paths = paths::get_cards_path().join(collection.name().to_owned());
-        let folder = path.strip_prefix(paths).unwrap();
+    fn from_dir_path(path: &Path) -> Self {
+        // either cards/x/y or collections/colname/x/y
+        let path = path
+            .strip_prefix(paths::get_share_path())
+            .to_owned()
+            .unwrap();
 
-        let components: Vec<String> = Path::new(folder)
-            .components()
-            .filter_map(|component| component.as_os_str().to_str().map(String::from))
-            .collect();
+        let mut components = path.components();
+
+        let collection = match components.next().unwrap().as_os_str().to_str().unwrap() {
+            "cards" => None,
+            "collections" => {
+                let col_name = components
+                    .next()
+                    .unwrap()
+                    .as_os_str()
+                    .to_str()
+                    .unwrap()
+                    .to_owned();
+                Some(col_name)
+            }
+            _ => panic!(),
+        };
+
+        let mut dirs = vec![];
+
+        for c in components {
+            let c = c.as_os_str().to_str().unwrap().to_string();
+            dirs.push(c);
+        }
 
         let categories = Self {
-            dir: components,
-            collection: collection.name().to_owned(),
+            collection,
+            dir: dirs,
         };
 
         if categories.as_path().exists() {
@@ -56,27 +64,8 @@ impl Category {
     }
 
     pub fn from_card_path(path: &Path) -> Self {
-        let path = path.parent().unwrap().to_owned();
-        let without_prefix = path.strip_prefix(paths::get_cards_path()).unwrap();
-        let mut components = without_prefix.components();
-        let col_name = components
-            .next()
-            .unwrap()
-            .as_os_str()
-            .to_str()
-            .unwrap()
-            .to_string();
-
-        let mut dirs = vec![];
-
-        for c in components {
-            dirs.push(c.as_os_str().to_string_lossy().to_string());
-        }
-
-        Self {
-            collection: col_name,
-            dir: dirs,
-        }
+        let dir = path.parent().unwrap().to_owned();
+        Self::from_dir_path(&dir)
     }
 
     pub fn get_containing_card_paths(&self) -> Vec<PathBuf> {
@@ -94,7 +83,7 @@ impl Category {
         paths
     }
 
-    pub fn get_following_categories(&self, collection: &Collection) -> Vec<Self> {
+    pub fn get_following_categories(&self, collection: Option<&Collection>) -> Vec<Self> {
         let categories = Category::load_all(collection);
         let catlen = self.dir.len();
         categories
@@ -125,19 +114,21 @@ impl Category {
         entry.file_type().is_dir() && !entry.file_name().to_string_lossy().starts_with(".")
     }
 
-    pub fn load_all(collection: &Collection) -> Vec<Self> {
+    pub fn load_all(collection: Option<&Collection>) -> Vec<Self> {
         let mut output = vec![];
         use walkdir::WalkDir;
 
-        for entry in WalkDir::new(collection.path())
+        let path = collection
+            .map(|col| col.path())
+            .unwrap_or_else(|| paths::get_cards_path());
+
+        for entry in WalkDir::new(path)
             .into_iter()
             .filter_entry(|e| Self::is_visible_dir(e))
             .filter_map(Result::ok)
         {
-            let cat = Self::from_dir_path(entry.path(), collection);
-            if cat != Self::root() {
-                output.push(cat);
-            }
+            let cat = Self::from_dir_path(entry.path());
+            output.push(cat);
         }
 
         output
@@ -145,50 +136,12 @@ impl Category {
 
     pub fn as_path(&self) -> PathBuf {
         let categories = self.dir.join("/");
-        let path = format!(
-            "{}/{}",
-            get_cards_path().join(&self.collection).to_string_lossy(),
-            categories
-        );
+        let prefix = match self.collection.as_ref() {
+            Some(col_name) => paths::get_collections_path().join(col_name),
+            None => paths::get_cards_path(),
+        };
+
+        let path = format!("{}/{}", prefix.display(), categories);
         PathBuf::from(path)
     }
 }
-
-/*
-impl Serialize for Category {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let s = self.0.join("/");
-        serializer.serialize_str(&s)
-    }
-}
-
-impl<'de> Deserialize<'de> for Category {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct StringVisitor;
-
-        impl<'de> Visitor<'de> for StringVisitor {
-            type Value = Category;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a string representing a category")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(Category(value.split('/').map(|s| s.to_string()).collect()))
-            }
-        }
-
-        deserializer.deserialize_str(StringVisitor)
-    }
-}
-
-*/
