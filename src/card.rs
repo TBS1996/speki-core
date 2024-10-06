@@ -1,7 +1,7 @@
 use crate::cache;
 use crate::categories::Category;
 use crate::collections::Collection;
-use crate::common::{open_file_with_vim, system_time_as_unix_time};
+use crate::common::{get_reviewed_cards, open_file_with_vim, system_time_as_unix_time};
 use crate::paths;
 use crate::reviews::{Recall, Review, Reviews};
 use crate::{common::current_time, common::Id};
@@ -92,6 +92,7 @@ impl SavedCard {
 
         Self::from_path(&path)
     }
+
     pub fn new(card: Card) -> Self {
         Self::new_at(card, &Category::default())
     }
@@ -115,6 +116,32 @@ impl SavedCard {
         Self::from_path(&path).into()
     }
 
+    pub fn load_pending(filter: Option<String>) -> Vec<Id> {
+        let mut cards = Self::load_all_cards();
+
+        cards.retain(|card| card.history.is_empty());
+
+        if let Some(filter) = filter {
+            cards.retain(|card| card.clone().eval(filter.clone()));
+        }
+
+        cards.iter().map(|card| card.id()).collect()
+    }
+
+    pub fn load_non_pending(filter: Option<String>) -> Vec<Id> {
+        let mut cards = vec![];
+
+        for id in get_reviewed_cards() {
+            cards.push(Self::from_id(&id).unwrap());
+        }
+
+        if let Some(filter) = filter {
+            cards.retain(|card| card.clone().eval(filter.clone()));
+        }
+
+        cards.iter().map(|card| card.id()).collect()
+    }
+
     pub fn load_all_cards() -> Vec<Self> {
         let collections = Collection::load_all();
         let mut categories = vec![];
@@ -130,7 +157,11 @@ impl SavedCard {
 
     pub fn from_path(path: &Path) -> Self {
         let content = read_to_string(path).expect("Could not read the TOML file");
-        let card: Card = toml::from_str(&content).unwrap();
+        let Ok(card) = toml::from_str::<Card>(&content) else {
+            dbg!("faild to read card from path: ", path);
+            panic!();
+        };
+
         let location = CardLocation::new(path);
 
         let last_modified = {
@@ -321,7 +352,6 @@ impl SavedCard {
     pub fn is_outdated(&self) -> bool {
         let file_last_modified = {
             let path = self.as_path();
-            dbg!(&path);
             let system_time = std::fs::metadata(path).unwrap().modified().unwrap();
             system_time_as_unix_time(system_time)
         };

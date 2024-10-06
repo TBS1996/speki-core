@@ -9,6 +9,9 @@ use std::io::{self, ErrorKind};
 
 use std::time::SystemTime;
 
+use crate::paths::get_review_path;
+use crate::SavedCard;
+
 pub type Id = Uuid;
 
 pub fn duration_to_days(dur: &Duration) -> f32 {
@@ -42,6 +45,37 @@ pub fn truncate_string(input: String, max_len: usize) -> String {
     }
 
     result
+}
+
+/// Returns the ids of all cards that have at least one review
+///
+/// meaning, it has an entry in the reviews folder.
+pub fn get_reviewed_cards() -> Vec<Id> {
+    let mut cards = vec![];
+
+    for file in std::fs::read_dir(&get_review_path()).unwrap() {
+        let file = file.unwrap();
+        if file.file_type().as_ref().unwrap().is_dir() {
+            continue;
+        }
+
+        let path = file.path();
+        let name = path.file_name().unwrap();
+        let id: Id = name.to_str().unwrap().parse().unwrap();
+
+        // The reviews folder can have ids that no longer refer to a card if it was deleted so we gotta check
+        // that it actually exists first
+        if SavedCard::from_id(&id).is_some() {
+            cards.push(id);
+        }
+    }
+
+    cards
+}
+
+pub fn filename_sanitizer(s: &str) -> String {
+    let s = s.replace(" ", "_").replace("'", "");
+    sanitize_filename::sanitize(s)
 }
 
 pub mod serde_duration_as_float_secs {

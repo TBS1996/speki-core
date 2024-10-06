@@ -26,6 +26,8 @@ impl Repo {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
+    pub remote_private: bool,
+    pub remote_name: String,
     pub collections: Vec<Repo>,
 }
 
@@ -72,6 +74,8 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            remote_private: true,
+            remote_name: "speki_remote".to_string(),
             collections: vec![Repo::new(
                 "https://github.com/TBS1996/spekigraph.git",
                 "main",

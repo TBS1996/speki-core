@@ -1,5 +1,10 @@
 use crate::collections::Collection;
+use crate::config::Config;
 use crate::paths::get_share_path;
+use git2::Cred;
+use git2::FetchOptions;
+use git2::RemoteCallbacks;
+use git2::Repository;
 use serde::Deserialize;
 use serde::Serialize;
 use std::fs::read_to_string;
@@ -149,4 +154,75 @@ fn make_github_repo(
         .send_json(repo_data);
 
     response
+}
+
+pub fn gitignore_text() -> &'static str {
+    r#"collections/
+login_info.json"#
+}
+
+pub fn gitattributes_text() -> &'static str {
+    r#"reviews/* merge=union"#
+}
+
+pub fn sync(login: &LoginInfo) {
+    use std::io::Write;
+    let config = Config::load().unwrap();
+
+    let repo = if !get_share_path().join(".git").exists() {
+        Repository::init(get_share_path()).unwrap()
+    } else {
+        Repository::open(get_share_path()).unwrap()
+    };
+
+    repo.set_head("refs/heads/main").unwrap();
+
+    if !get_share_path().join(".gitignore").exists() {
+        let mut f = File::create_new(get_share_path().join(".gitignore")).unwrap();
+        f.write_all(gitignore_text().as_bytes()).unwrap();
+    }
+
+    if !get_share_path().join(".gitattributes").exists() {
+        let mut f = File::create_new(get_share_path().join(".gitattributes")).unwrap();
+        f.write_all(gitignore_text().as_bytes()).unwrap();
+    }
+
+    let url = &make_url(login, &config.remote_name);
+
+    repo.remote_set_url("origin", url).unwrap();
+    repo.remote_add_push("origin", "refs/heads/*:refs/remotes/origin/*")
+        .unwrap();
+
+    match make_github_repo(login, &config.remote_name, config.remote_private) {
+        Ok(_) => {}
+        Err(ureq::Error::Status(422, _)) => {}
+        _ => panic!(),
+    }
+
+    let mut callbacks = RemoteCallbacks::new();
+
+    // Set up the authentication callback
+    callbacks.credentials(|_url, _username_from_url, _allowed_types| {
+        Cred::userpass_plaintext("oauth2", &LoginInfo::load().unwrap().access_token)
+    });
+
+    let mut fetch_options = FetchOptions::new();
+    fetch_options.remote_callbacks(callbacks);
+
+    // Perform the fetch operation with authentication
+    let mut remote = repo.find_remote("origin").unwrap();
+    remote
+        .fetch(&["main"], Some(&mut fetch_options), None)
+        .unwrap();
+
+    use crate::collections;
+    collections::fetch(&repo);
+    collections::merge(&repo);
+    collections::add(&repo);
+    collections::commit(&repo).unwrap();
+    collections::push(&repo).unwrap();
+}
+
+fn make_url(login: &LoginInfo, name: &str) -> String {
+    format!("https://github.com/{}/{}.git", &login.login, name)
 }

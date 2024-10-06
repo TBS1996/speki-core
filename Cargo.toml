@@ -1,6 +1,6 @@
 [package]
 name = "speki-core"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 authors = ["tor torberge@outlook.com"]
 description = "core functionality of speki"
