@@ -227,6 +227,9 @@ impl SavedCard {
     }
 
     pub fn set_dependency(&mut self, dependency: Id) {
+        if self.id() == dependency {
+            return;
+        }
         self.card.dependencies.insert(dependency);
         self.persist();
         cache::add_dependent(dependency, self.id());

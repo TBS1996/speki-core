@@ -55,6 +55,10 @@ pub fn review(card_id: Id, grade: Recall) {
 }
 
 pub fn set_dependency(card_id: Id, dependency: Id) {
+    if card_id == dependency {
+        return;
+    }
+
     let mut card = SavedCard::from_id(&card_id).unwrap();
     card.set_dependency(dependency);
     cache::add_dependent(dependency, card_id);

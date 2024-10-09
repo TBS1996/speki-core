@@ -3,6 +3,10 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs::read_to_string, path::PathBuf};
 
 pub fn add_dependent(card: Id, dependent: Id) {
+    if card == dependent {
+        return;
+    }
+
     let mut info = match CacheInfo::load_and_verify(card) {
         Some(info) => info,
         None => {
