@@ -443,6 +443,7 @@ impl Matcher for SavedCard {
             "id" => json!(&self.id().to_string()),
             "recall" => json!(self.recall_rate().unwrap_or_default()),
             "stability" => json!(self.maturity()),
+            "lapses" => json!(self.lapses()),
             "lastreview" => json!(
                 self.time_since_last_review()
                     .unwrap_or_else(|| Duration::MAX)
