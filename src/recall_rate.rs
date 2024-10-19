@@ -5,6 +5,15 @@ use crate::{
     reviews::{Recall, Reviews},
 };
 
+/// Randomizes the flashcard factor with a factor of 0.5 to 1.4 to avoid clustering of reviews
+fn randomize_factor(factor: f32, prev_review_timestamp: Duration) -> f32 {
+    let rand = prev_review_timestamp.as_secs();
+    let rand = rand % 10; // random number from 0 to 9
+    let rand = rand as f32 / 10.; // random number from 0.0 to 0.9
+    let rand = rand + 0.5; // random number from 0.5 to 1.4
+    factor * rand
+}
+
 fn new_stability(
     grade: &Recall,
     time_passed: Option<Duration>,
@@ -54,6 +63,9 @@ fn stability(reviews: &Reviews) -> Option<Duration> {
 pub fn recall_rate(reviews: &Reviews, current_unix: Duration) -> Option<RecallRate> {
     let days_passed = reviews.time_since_last_review(current_unix)?;
     let stability = stability(reviews)?;
+    let randomized_stability =
+        randomize_factor(stability.as_secs_f32(), reviews.0.last().unwrap().timestamp);
+    let stability = Duration::from_secs_f32(randomized_stability);
     Some(calculate_recall_rate(&days_passed, &stability))
 }
 

@@ -131,7 +131,6 @@ impl Recall {
             Recall::Some => 2.,
             Recall::Perfect => 3.,
         }
-        //factor * Self::randomize_factor()
     }
 }
 
