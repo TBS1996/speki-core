@@ -5,6 +5,7 @@ use crate::{
 };
 use eyre::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::Write;
 use uuid::Uuid;
@@ -15,7 +16,8 @@ pub type AttributeId = Uuid;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Concept {
     pub name: String,
-    pub dependencies: Vec<Id>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub dependencies: BTreeSet<Id>,
     pub id: ConceptId,
 }
 
@@ -47,7 +49,7 @@ impl Concept {
     pub fn create(name: String) -> ConceptId {
         let concept = Self {
             name,
-            dependencies: vec![],
+            dependencies: Default::default(),
             id: Uuid::new_v4(),
         };
         concept.save().unwrap();
@@ -60,6 +62,8 @@ pub struct Attribute {
     pub pattern: String,
     pub id: AttributeId,
     pub concept: ConceptId,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub dependencies: BTreeSet<Id>,
 }
 
 impl Attribute {
@@ -111,6 +115,7 @@ impl Attribute {
             pattern,
             id: Uuid::new_v4(),
             concept,
+            dependencies: Default::default(),
         };
 
         attr.save().unwrap();

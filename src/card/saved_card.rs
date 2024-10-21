@@ -1,11 +1,12 @@
 use crate::cache;
 use crate::categories::Category;
 use crate::collections::Collection;
-use crate::common::{get_reviewed_cards, open_file_with_vim, system_time_as_unix_time};
+use crate::common::{open_file_with_vim, system_time_as_unix_time};
 use crate::concept::{AttributeId, ConceptId};
 use crate::paths;
 use crate::reviews::{Recall, Review, Reviews};
 use crate::{common::current_time, common::Id};
+use rayon::prelude::*;
 use samsvar::json;
 use samsvar::Matcher;
 use sanitize_filename::sanitize;
@@ -15,13 +16,12 @@ use std::fs::{self, create_dir_all, read_to_string};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use uuid::Uuid;
 
 use crate::card::Card;
 use crate::card::CardLocation;
 use crate::card::IsSuspended;
 
-use super::{CardType, RawCard, RecallRate};
+use super::{BackSide, CardType, RawCard, RecallRate};
 
 /// Represents a card that has been saved as a toml file, which is basically anywhere in the codebase
 /// except for when youre constructing a new card.
@@ -83,16 +83,14 @@ impl SavedCard {
     }
 
     fn get_cards_from_categories(cats: Vec<Category>) -> Vec<Self> {
-        let mut cards = vec![];
-
-        for cat in cats {
-            for path in cat.get_containing_card_paths() {
-                let card = Self::from_path(&path);
-                cards.push(card);
-            }
-        }
-
-        cards
+        cats.into_par_iter()
+            .flat_map(|cat| {
+                cat.get_containing_card_paths()
+                    .into_par_iter()
+                    .map(|path| Self::from_path(&path))
+                    .collect::<Vec<Self>>()
+            })
+            .collect()
     }
 
     // potentially expensive function!
@@ -101,43 +99,60 @@ impl SavedCard {
         Self::from_path(&path).into()
     }
 
-    pub fn load_pending(filter: Option<String>) -> Vec<Id> {
+    pub fn xload_pending(filter: Option<String>) -> Vec<Id> {
         let mut cards = Self::load_all_cards();
 
         cards.retain(|card| card.history.is_empty());
 
         if let Some(filter) = filter {
-            cards.retain(|card| card.clone().eval(filter.clone()));
+            cards.retain(|card| card.eval(filter.clone()));
         }
 
         cards.iter().map(|card| card.id()).collect()
     }
 
+    pub fn load_pending(filter: Option<String>) -> Vec<Id> {
+        Self::load_all_cards()
+            .into_par_iter()
+            .filter(|card| card.history.is_empty())
+            .filter(|card| {
+                if let Some(ref filter) = filter {
+                    card.eval(filter.clone())
+                } else {
+                    true
+                }
+            })
+            .map(|card| card.id())
+            .collect()
+    }
+
     pub fn load_non_pending(filter: Option<String>) -> Vec<Id> {
-        let mut cards = vec![];
-
-        for id in get_reviewed_cards() {
-            cards.push(Self::from_id(&id).unwrap());
-        }
-
-        if let Some(filter) = filter {
-            cards.retain(|card| card.clone().eval(filter.clone()));
-        }
-
-        cards.iter().map(|card| card.id()).collect()
+        Self::load_all_cards()
+            .into_par_iter()
+            .filter(|card| !card.history.is_empty())
+            .filter(|card| {
+                if let Some(ref filter) = filter {
+                    card.eval(filter.clone())
+                } else {
+                    true
+                }
+            })
+            .map(|card| card.id())
+            .collect()
     }
 
     pub fn load_all_cards() -> Vec<Self> {
         let collections = Collection::load_all();
-        let mut categories = vec![];
-        for col in collections {
-            let cats = col.load_categories();
-            categories.extend(cats);
-        }
 
-        categories.extend(Category::load_all(None));
+        let mut categories: Vec<Category> = collections
+            .into_par_iter()
+            .flat_map(|col| col.load_categories())
+            .collect();
 
-        Self::get_cards_from_categories(categories.clone())
+        let extra_categories = Category::load_all(None);
+        categories.extend(extra_categories);
+
+        Self::get_cards_from_categories(categories)
     }
 
     pub fn from_path(path: &Path) -> Self {
@@ -188,14 +203,13 @@ impl SavedCard {
     }
 
     pub fn set_ref(&mut self, id: Id) {
-        let new = id.to_string();
         match &mut self.card.data {
             CardType::Normal { ref mut back, .. } => {
-                *back = new;
+                *back = BackSide::Card(id);
             }
             CardType::Concept { .. } => return,
             CardType::Attribute { ref mut back, .. } => {
-                *back = new;
+                *back = BackSide::Card(id);
             }
             CardType::Unfinished { .. } => return,
         }
@@ -232,12 +246,12 @@ impl SavedCard {
         res
     }
 
-    pub fn set_attribute(&mut self, id: AttributeId) {
-        let back = self.back_text().unwrap().to_string();
+    pub fn set_attribute(&mut self, id: AttributeId, concept_card: Id) {
+        let back = self.back_side().unwrap().to_owned();
         let data = CardType::Attribute {
-            front: None,
             back,
             attribute: id,
+            concept_card,
         };
         self.card.data = data;
         self.persist();
@@ -282,8 +296,8 @@ impl SavedCard {
             };
 
             for dep in card.dependency_ids() {
-                deps.push(*dep);
-                inner(*dep, deps);
+                deps.push(dep);
+                inner(dep, deps);
             }
         }
 
@@ -348,8 +362,10 @@ impl SavedCard {
         self.card.id
     }
 
-    pub fn dependency_ids(&self) -> &BTreeSet<Id> {
-        &self.card.dependencies
+    pub fn dependency_ids(&self) -> BTreeSet<Id> {
+        let mut deps = self.card.dependencies.clone();
+        deps.extend(self.card.data.dependencies());
+        deps
     }
 
     pub fn as_path(&self) -> PathBuf {
@@ -409,15 +425,6 @@ impl SavedCard {
         self.persist();
     }
 
-    pub fn fake_new_review(&mut self, grade: Recall, time: Duration, at_time: Duration) {
-        let review = Review {
-            timestamp: at_time,
-            grade,
-            time_spent: time,
-        };
-        self.history.add_review(review);
-    }
-
     pub fn lapses(&self) -> u32 {
         self.history.lapses()
     }
@@ -430,23 +437,20 @@ impl SavedCard {
         }
     }
 
-    pub fn back_text(&self) -> Option<String> {
-        let txt = match self.card_type() {
-            CardType::Normal { back, .. } => back.to_string(),
+    pub fn back_side(&self) -> Option<&BackSide> {
+        match self.card_type() {
+            CardType::Normal { back, .. } => Some(back),
             CardType::Concept { .. } => None?,
-            CardType::Attribute { back, .. } => back.to_string(),
+            CardType::Attribute { back, .. } => Some(back),
             CardType::Unfinished { .. } => None?,
-        };
-
-        if let Ok(id) = txt.parse::<Uuid>() {
-            Some(SavedCard::from_id(&id).unwrap().print())
-        } else {
-            Some(txt.to_string())
         }
     }
 
     pub fn set_type_normal(&mut self, front: String, back: String) {
-        let data = CardType::Normal { front, back };
+        let data = CardType::Normal {
+            front,
+            back: back.into(),
+        };
         self.card.data = data;
         self.persist();
     }
@@ -456,7 +460,10 @@ impl Matcher for SavedCard {
     fn get_val(&self, key: &str) -> Option<samsvar::Value> {
         match key {
             "front" => json!(&self.card.display()),
-            "back" => json!(&self.back_text().unwrap_or_default()),
+            "back" => json!(&self
+                .back_side()
+                .map(|bs| bs.to_string())
+                .unwrap_or_default()),
             "suspended" => json!(&self.is_suspended()),
             "finished" => json!(&self.is_finished()),
             "resolved" => json!(&self.is_resolved()),

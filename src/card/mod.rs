@@ -1,11 +1,12 @@
 use crate::categories::Category;
-use crate::concept::Attribute;
+use crate::concept::{Attribute, Concept};
 use crate::concept::{AttributeId, ConceptId};
 use crate::{common::current_time, common::Id};
 use serde::de::Deserializer;
 use serde::{de, Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
+use std::fmt::Display;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -48,6 +49,7 @@ struct RawCard {
     back: Option<String>,
     name: Option<String>,
     concept: Option<ConceptId>,
+    concept_card: Option<Id>,
     attribute: Option<AttributeId>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     dependencies: BTreeSet<Id>,
@@ -63,20 +65,20 @@ impl RawCard {
         match card.data {
             CardType::Normal { front, back } => {
                 raw.front = Some(front);
-                raw.back = Some(back);
+                raw.back = Some(back.serialize());
             }
             CardType::Concept { name, concept } => {
                 raw.name = Some(name);
                 raw.concept = Some(concept);
             }
             CardType::Attribute {
-                front,
                 back,
                 attribute,
+                concept_card,
             } => {
-                raw.front = front;
-                raw.back = Some(back);
+                raw.back = Some(back.serialize());
                 raw.attribute = Some(attribute);
+                raw.concept_card = Some(concept_card);
             }
             CardType::Unfinished { front } => {
                 raw.front = Some(front);
@@ -90,6 +92,21 @@ impl RawCard {
     }
 
     fn into_card(self) -> Option<Card> {
+        let mut concept_card = None;
+        if self.attribute.is_some() {
+            concept_card = if let Some(concept) = self.concept_card {
+                Some(concept)
+            } else {
+                Some(
+                    self.dependencies
+                        .iter()
+                        .find(|id| SavedCard::from_id(id).unwrap().concept().is_some())
+                        .copied()
+                        .unwrap(),
+                )
+            };
+        };
+
         let data = match (
             self.front,
             self.back,
@@ -97,13 +114,16 @@ impl RawCard {
             self.concept,
             self.attribute,
         ) {
-            (front, Some(back), None, None, Some(attribute)) => CardType::Attribute {
-                front,
-                back,
+            (None, Some(back), None, None, Some(attribute)) => CardType::Attribute {
                 attribute,
+                back: back.into(),
+                concept_card: concept_card.unwrap(),
+            },
+            (Some(front), Some(back), None, None, None) => CardType::Normal {
+                front,
+                back: back.into(),
             },
             (None, None, Some(name), Some(concept), None) => CardType::Concept { name, concept },
-            (Some(front), Some(back), None, None, None) => CardType::Normal { front, back },
             (Some(front), None, None, None, None) => CardType::Unfinished { front },
             other => {
                 println!("invalid combination of args: {:?}", other);
@@ -121,23 +141,119 @@ impl RawCard {
 }
 
 #[derive(Ord, PartialOrd, Eq, Hash, PartialEq, Debug, Clone)]
+pub enum BackSide {
+    Text(String),
+    Card(Id),
+}
+
+impl Default for BackSide {
+    fn default() -> Self {
+        Self::Text(Default::default())
+    }
+}
+
+impl From<String> for BackSide {
+    fn from(s: String) -> Self {
+        if let Ok(id) = s.parse::<Uuid>() {
+            Self::Card(id)
+        } else {
+            Self::Text(s)
+        }
+    }
+}
+
+impl BackSide {
+    fn serialize(self) -> String {
+        match self {
+            BackSide::Text(s) => s,
+            BackSide::Card(id) => id.to_string(),
+        }
+    }
+}
+
+impl Display for BackSide {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let text = match self {
+            BackSide::Text(s) => s.to_owned(),
+            BackSide::Card(id) => SavedCard::from_id(id).unwrap().print(),
+        };
+
+        write!(f, "{}", text)
+    }
+}
+
+#[derive(Ord, PartialOrd, Eq, Hash, PartialEq, Debug, Clone)]
 pub enum CardType {
     Normal {
         front: String,
-        back: String,
+        back: BackSide,
     },
     Concept {
         name: String,
         concept: ConceptId,
     },
     Attribute {
-        front: Option<String>, // front is generated but can be overriden (maybe later)
-        back: String,
         attribute: AttributeId,
+        back: BackSide,
+        concept_card: Id,
     },
     Unfinished {
         front: String,
     },
+}
+
+impl CardType {
+    pub fn is_normal(&self) -> bool {
+        matches!(self, Self::Normal { .. })
+    }
+    pub fn is_concept(&self) -> bool {
+        matches!(self, Self::Concept { .. })
+    }
+    pub fn is_attribute(&self) -> bool {
+        matches!(self, Self::Attribute { .. })
+    }
+    pub fn is_unfinished(&self) -> bool {
+        matches!(self, Self::Unfinished { .. })
+    }
+
+    pub fn display(&self) -> &str {
+        match self {
+            CardType::Normal { .. } => "normal",
+            CardType::Concept { .. } => "concept",
+            CardType::Attribute { .. } => "attribute",
+            CardType::Unfinished { .. } => "unfinished",
+        }
+    }
+
+    pub fn dependencies(&self) -> BTreeSet<Id> {
+        let mut dependencies = BTreeSet::default();
+
+        match self {
+            CardType::Normal { back, .. } => {
+                if let BackSide::Card(id) = back {
+                    dependencies.insert(*id);
+                }
+            }
+            CardType::Concept { concept, .. } => {
+                dependencies.extend(Concept::load(*concept).unwrap().dependencies.iter());
+            }
+            CardType::Attribute {
+                attribute,
+                back,
+                concept_card,
+            } => {
+                dependencies.extend(Attribute::load(*attribute).unwrap().dependencies.iter());
+                if let BackSide::Card(id) = back {
+                    dependencies.insert(*id);
+                }
+
+                dependencies.insert(*concept_card);
+            }
+            CardType::Unfinished { .. } => {}
+        };
+
+        dependencies
+    }
 }
 
 #[derive(Ord, PartialOrd, Eq, Hash, PartialEq, Debug, Clone)]
@@ -173,20 +289,14 @@ impl Card {
 
     pub fn display(&self) -> String {
         match &self.data {
+            CardType::Unfinished { front } => front.clone(),
             CardType::Normal { front, .. } => front.clone(),
             CardType::Concept { name, .. } => name.clone(),
             CardType::Attribute {
-                front, attribute, ..
-            } => match front.clone() {
-                Some(front) => front,
-                None => {
-                    let id = SavedCard::from_id(self.dependencies.iter().next().unwrap())
-                        .unwrap()
-                        .id();
-                    Attribute::load(*attribute).unwrap().name(id)
-                }
-            },
-            CardType::Unfinished { front } => front.clone(),
+                attribute,
+                concept_card,
+                ..
+            } => Attribute::load(*attribute).unwrap().name(*concept_card),
         }
     }
 
@@ -203,7 +313,10 @@ impl Card {
     }
 
     pub fn new_simple(front: String, back: String) -> Self {
-        let data = CardType::Normal { front, back };
+        let data = CardType::Normal {
+            front,
+            back: back.into(),
+        };
         Card {
             data,
             id: Uuid::new_v4(),

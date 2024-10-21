@@ -12,10 +12,11 @@ pub mod reviews;
 
 use std::path::{Path, PathBuf};
 
+use card::CardType;
 pub use card::SavedCard;
 use categories::Category;
 use common::Id;
-use concept::{Concept, ConceptId};
+use concept::{Attribute, Concept, ConceptId};
 use reviews::Recall;
 use samsvar::Matcher;
 use sanitize_filename::sanitize;
@@ -89,22 +90,6 @@ pub fn edit(card_id: Id) {
     SavedCard::from_id(&card_id).unwrap().edit_with_vim();
 }
 
-// Delete dependencies where card isnt found
-pub fn prune_dependencies() {
-    for mut card in SavedCard::load_all_cards() {
-        let mut rm = vec![];
-        for dep in card.dependency_ids() {
-            if SavedCard::from_id(&dep).is_none() {
-                rm.push(*dep);
-            }
-        }
-
-        for dep in rm {
-            card.rm_dependency(dep);
-        }
-    }
-}
-
 pub fn get_containing_file_paths(directory: &Path, ext: Option<&str>) -> Vec<PathBuf> {
     let mut paths = vec![];
 
@@ -174,7 +159,7 @@ mod graphviz {
             }
 
             // Create edges for dependencies, also enclosing IDs in quotes
-            for &child_id in card.dependency_ids() {
+            for child_id in card.dependency_ids() {
                 dot.push_str(&format!("    \"{}\" -> \"{}\";\n", card.id(), child_id));
             }
         }
@@ -196,5 +181,40 @@ mod graphviz {
 
     fn yellow_color() -> String {
         String::from("#FFFF00")
+    }
+}
+
+pub fn health_check() {
+    println!("STARTING HEALTH CHECK");
+    verify_attributes();
+    println!("HEALTH CHECK OVER");
+}
+
+fn verify_attributes() {
+    for card in SavedCard::load_all_cards() {
+        if let CardType::Attribute {
+            attribute,
+            concept_card,
+            ..
+        } = card.card_type()
+        {
+            if Attribute::load(*attribute).is_none() {
+                println!("error loading attribute for: {:?}", &card);
+            }
+
+            match SavedCard::from_id(concept_card) {
+                Some(concept_card) => {
+                    if !card.card_type().is_concept() {
+                        println!(
+                            "error, cards concept card is not a concept: {:?} -> {:?}",
+                            &card, concept_card
+                        )
+                    }
+                }
+                None => {
+                    println!("error loading concept card for: {}", &card);
+                }
+            }
+        }
     }
 }
