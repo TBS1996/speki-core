@@ -3,17 +3,22 @@ pub mod card;
 pub mod categories;
 pub mod collections;
 pub mod common;
+pub mod concept;
 pub mod config;
 pub mod github;
 pub mod paths;
 pub mod recall_rate;
 pub mod reviews;
 
+use std::path::{Path, PathBuf};
+
 pub use card::SavedCard;
 use categories::Category;
 use common::Id;
+use concept::{Concept, ConceptId};
 use reviews::Recall;
 use samsvar::Matcher;
+use sanitize_filename::sanitize;
 
 pub fn load_cards() -> Vec<Id> {
     SavedCard::load_all_cards()
@@ -22,14 +27,8 @@ pub fn load_cards() -> Vec<Id> {
         .collect()
 }
 
-pub fn set_back_text(id: Id, s: String) {
-    let mut card = SavedCard::from_id(&id).unwrap();
-    card.set_back_text(&s);
-}
-
-pub fn set_finished(id: Id, finished: bool) {
-    let mut card = SavedCard::from_id(&id).unwrap();
-    card.set_finished(finished);
+pub fn get_cached_dependents(id: Id) -> Vec<Id> {
+    cache::dependents_from_id(id)
 }
 
 pub fn cards_filtered(filter: String) -> Vec<Id> {
@@ -44,14 +43,22 @@ pub fn add_card(front: String, back: String, cat: &Category) -> Id {
 }
 
 pub fn add_unfinished(front: String, category: &Category) -> Id {
-    let mut card = card::Card::new_simple(front, "".to_string());
-    card.finished = false;
+    let card = card::Card::new_simple(front, "".to_string());
     SavedCard::new_at(card, category).id()
 }
 
 pub fn review(card_id: Id, grade: Recall) {
     let mut card = SavedCard::from_id(&card_id).unwrap();
     card.new_review(grade, Default::default());
+}
+
+use eyre::Result;
+
+pub fn set_concept(card_id: Id, concept: ConceptId) -> Result<()> {
+    assert!(Concept::load(concept).is_some(), "concept not found??");
+    let mut card = SavedCard::from_id(&card_id).unwrap();
+    card.set_concept(concept);
+    Ok(())
 }
 
 pub fn set_dependency(card_id: Id, dependency: Id) {
@@ -98,31 +105,31 @@ pub fn prune_dependencies() {
     }
 }
 
-mod mermaid {
-    use common::truncate_string;
+pub fn get_containing_file_paths(directory: &Path, ext: Option<&str>) -> Vec<PathBuf> {
+    let mut paths = vec![];
 
-    use super::*;
+    for entry in std::fs::read_dir(directory).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
 
-    pub fn _export() -> String {
-        let mut mermaid = String::from("graph TD;\n");
-
-        for card in SavedCard::load_all_cards() {
-            let label = card
-                .front_text()
-                .to_string()
-                .replace(")", "")
-                .replace("(", "");
-            let label = truncate_string(label, 25);
-
-            mermaid.push_str(&format!("    {}[{}];\n", card.id(), label));
-
-            for &child_id in card.dependency_ids() {
-                mermaid.push_str(&format!("    {} --> {};\n", card.id(), child_id));
-            }
+        if !path.is_file() {
+            continue;
         }
 
-        mermaid
+        match ext {
+            Some(ext) => {
+                if path.extension().and_then(|s| s.to_str()) == Some(ext) {
+                    paths.push(path)
+                }
+            }
+            None => paths.push(path),
+        }
     }
+    paths
+}
+
+pub fn my_sanitize_filename(s: &str) -> String {
+    sanitize(s.replace(" ", "_").replace("'", ""))
 }
 
 mod graphviz {
@@ -133,10 +140,11 @@ mod graphviz {
 
         for card in SavedCard::load_all_cards() {
             let label = card
-                .front_text()
+                .print()
                 .to_string()
                 .replace(")", "")
-                .replace("(", "");
+                .replace("(", "")
+                .replace("\"", "");
 
             let color = match card.recall_rate() {
                 _ if !card.is_finished() => yellow_color(),

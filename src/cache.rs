@@ -22,6 +22,18 @@ pub fn add_dependent(card: Id, dependent: Id) {
     info.save(card);
 }
 
+pub fn dependents_from_id(id: Id) -> Vec<Id> {
+    match CacheInfo::load_and_verify(id) {
+        Some(info) => info.dependents,
+        None => {
+            sync_cache();
+            CacheInfo::load_and_verify(id)
+                .map(|info| info.dependents)
+                .unwrap_or_default()
+        }
+    }
+}
+
 pub fn path_from_id(id: Id) -> Option<PathBuf> {
     match CacheInfo::load_and_verify(id) {
         Some(info) => Some(info.path),

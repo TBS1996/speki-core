@@ -2,60 +2,26 @@ use crate::cache;
 use crate::categories::Category;
 use crate::collections::Collection;
 use crate::common::{get_reviewed_cards, open_file_with_vim, system_time_as_unix_time};
+use crate::concept::{AttributeId, ConceptId};
 use crate::paths;
 use crate::reviews::{Recall, Review, Reviews};
 use crate::{common::current_time, common::Id};
 use samsvar::json;
 use samsvar::Matcher;
 use sanitize_filename::sanitize;
-use serde::de::Deserializer;
-use serde::{de, Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
-use std::ffi::OsString;
 use std::fs::{self, create_dir_all, read_to_string};
-use std::io::{BufRead, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use toml::Value;
 use uuid::Uuid;
 
-pub type RecallRate = f32;
+use crate::card::Card;
+use crate::card::CardLocation;
+use crate::card::IsSuspended;
 
-#[derive(Ord, PartialOrd, Eq, PartialEq, Hash, Clone, Debug)]
-pub struct CardLocation {
-    file_name: OsString,
-    category: Category,
-}
-
-impl CardLocation {
-    pub fn new(path: &Path) -> Self {
-        let file_name = path.file_name().unwrap().to_owned();
-        let category = Category::from_card_path(path);
-        Self {
-            file_name,
-            category,
-        }
-    }
-
-    fn as_path(&self) -> PathBuf {
-        let mut path = self.category.as_path().join(self.file_name.clone());
-        path.set_extension("toml");
-        path
-    }
-}
-
-impl std::fmt::Display for SavedCard {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.front_text())
-    }
-}
-
-impl From<SavedCard> for Card {
-    fn from(value: SavedCard) -> Self {
-        value.card
-    }
-}
+use super::{CardType, RawCard, RecallRate};
 
 /// Represents a card that has been saved as a toml file, which is basically anywhere in the codebase
 /// except for when youre constructing a new card.
@@ -70,10 +36,27 @@ pub struct SavedCard {
     suspended: IsSuspended,
 }
 
+impl std::fmt::Display for SavedCard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.card.display())
+    }
+}
+
+impl From<SavedCard> for Card {
+    fn from(value: SavedCard) -> Self {
+        value.card
+    }
+}
+
 /// Associated methods
 impl SavedCard {
+    pub fn create(data: CardType, category: &Category) -> Self {
+        let card = Card::new(data);
+        Self::new_at(card, category)
+    }
+
     pub fn new_at(card: Card, category: &Category) -> Self {
-        let filename = sanitize(card.front.clone().replace(" ", "_").replace("'", ""));
+        let filename = sanitize(card.display().replace(" ", "_").replace("'", ""));
         let dir = category.as_path();
         create_dir_all(&dir).unwrap();
         let mut path = dir.join(&filename);
@@ -84,7 +67,9 @@ impl SavedCard {
             path.set_extension("toml");
         };
 
-        let s: String = toml::to_string_pretty(&card).unwrap();
+        let raw_card = RawCard::from_card(card);
+
+        let s: String = toml::to_string_pretty(&raw_card).unwrap();
 
         let mut file = fs::File::create_new(&path).unwrap();
 
@@ -157,8 +142,13 @@ impl SavedCard {
 
     pub fn from_path(path: &Path) -> Self {
         let content = read_to_string(path).expect("Could not read the TOML file");
-        let Ok(card) = toml::from_str::<Card>(&content) else {
+        let Ok(raw_card) = toml::from_str::<RawCard>(&content) else {
             dbg!("faild to read card from path: ", path);
+            panic!();
+        };
+
+        let Some(card) = raw_card.into_card() else {
+            println!("{}", path.display());
             panic!();
         };
 
@@ -197,6 +187,22 @@ impl SavedCard {
         self.history.save(self.id());
     }
 
+    pub fn set_ref(&mut self, id: Id) {
+        let new = id.to_string();
+        match &mut self.card.data {
+            CardType::Normal { ref mut back, .. } => {
+                *back = new;
+            }
+            CardType::Concept { .. } => return,
+            CardType::Attribute { ref mut back, .. } => {
+                *back = new;
+            }
+            CardType::Unfinished { .. } => return,
+        }
+
+        self.persist();
+    }
+
     fn time_passed_since_last_review(&self) -> Option<Duration> {
         if current_time() < self.history.0.last()?.timestamp {
             return Duration::default().into();
@@ -224,6 +230,28 @@ impl SavedCard {
         let res = self.card.dependencies.remove(&dependency);
         self.persist();
         res
+    }
+
+    pub fn set_attribute(&mut self, id: AttributeId) {
+        let back = self.back_text().unwrap().to_string();
+        let data = CardType::Attribute {
+            front: None,
+            back,
+            attribute: id,
+        };
+        self.card.data = data;
+        self.persist();
+    }
+
+    pub fn set_concept(&mut self, concept: ConceptId) {
+        let name = self.card.display();
+        let ty = CardType::Concept { name, concept };
+        self.card.data = ty;
+        self.persist();
+    }
+
+    pub fn card_type(&self) -> &CardType {
+        &self.card.data
     }
 
     pub fn set_dependency(&mut self, dependency: Id) {
@@ -284,7 +312,7 @@ impl SavedCard {
     }
 
     pub fn print(&self) -> String {
-        self.card.front.clone()
+        self.card.display()
     }
 
     pub fn reviews(&self) -> &Vec<Review> {
@@ -299,10 +327,6 @@ impl SavedCard {
         &self.location.category
     }
 
-    pub fn front_text(&self) -> &str {
-        &self.card.front
-    }
-
     #[allow(dead_code)]
     pub fn is_pending(&self) -> bool {
         self.history.is_empty()
@@ -313,25 +337,11 @@ impl SavedCard {
     }
 
     pub fn is_finished(&self) -> bool {
-        self.card.finished
-    }
-
-    pub fn set_front_text(&mut self, text: &str) {
-        self.card.front = text.to_string();
-        self.persist();
-    }
-
-    pub fn set_back_text(&mut self, text: &str) {
-        self.card.back = text.to_string();
-        self.persist();
+        !matches!(self.card.card_type(), CardType::Unfinished { .. })
     }
 
     pub fn time_since_last_review(&self) -> Option<Duration> {
         self.time_passed_since_last_review()
-    }
-
-    pub fn back_text(&self) -> &str {
-        &self.card.back
     }
 
     pub fn id(&self) -> Id {
@@ -340,11 +350,6 @@ impl SavedCard {
 
     pub fn dependency_ids(&self) -> &BTreeSet<Id> {
         &self.card.dependencies
-    }
-
-    pub fn set_finished(&mut self, finished: bool) {
-        self.card.finished = finished;
-        self.persist();
     }
 
     pub fn as_path(&self) -> PathBuf {
@@ -391,7 +396,8 @@ impl SavedCard {
         }
 
         self.history.save(self.id());
-        let toml = toml::to_string(&self.card).unwrap();
+        let raw_card = RawCard::from_card(self.card.clone());
+        let toml = toml::to_string(&raw_card).unwrap();
 
         std::fs::write(&path, toml).unwrap();
         *self = SavedCard::from_path(path.as_path())
@@ -415,28 +421,42 @@ impl SavedCard {
     pub fn lapses(&self) -> u32 {
         self.history.lapses()
     }
-}
 
-fn is_true(b: &bool) -> bool {
-    *b == true
-}
+    pub fn concept(&self) -> Option<ConceptId> {
+        if let CardType::Concept { concept, .. } = self.card_type() {
+            Some(*concept)
+        } else {
+            None
+        }
+    }
 
-#[derive(Ord, PartialOrd, Eq, Hash, PartialEq, Deserialize, Serialize, Debug, Default, Clone)]
-pub struct Card {
-    pub front: String,
-    pub back: String,
-    pub id: Id,
-    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    pub dependencies: BTreeSet<Id>,
-    #[serde(default = "default_finished", skip_serializing_if = "is_true")]
-    pub finished: bool,
+    pub fn back_text(&self) -> Option<String> {
+        let txt = match self.card_type() {
+            CardType::Normal { back, .. } => back.to_string(),
+            CardType::Concept { .. } => None?,
+            CardType::Attribute { back, .. } => back.to_string(),
+            CardType::Unfinished { .. } => None?,
+        };
+
+        if let Ok(id) = txt.parse::<Uuid>() {
+            Some(SavedCard::from_id(&id).unwrap().print())
+        } else {
+            Some(txt.to_string())
+        }
+    }
+
+    pub fn set_type_normal(&mut self, front: String, back: String) {
+        let data = CardType::Normal { front, back };
+        self.card.data = data;
+        self.persist();
+    }
 }
 
 impl Matcher for SavedCard {
     fn get_val(&self, key: &str) -> Option<samsvar::Value> {
         match key {
-            "front" => json!(&self.front_text()),
-            "back" => json!(&self.back_text()),
+            "front" => json!(&self.card.display()),
+            "back" => json!(&self.back_text().unwrap_or_default()),
             "suspended" => json!(&self.is_suspended()),
             "finished" => json!(&self.is_finished()),
             "resolved" => json!(&self.is_resolved()),
@@ -491,109 +511,4 @@ impl Matcher for SavedCard {
         }
         .into()
     }
-}
-
-impl Card {
-    pub fn import_cards(filename: &Path) -> Option<Vec<Self>> {
-        let mut lines = std::io::BufReader::new(std::fs::File::open(filename).ok()?).lines();
-        let mut cards = vec![];
-
-        while let Some(Ok(question)) = lines.next() {
-            if let Some(Ok(answer)) = lines.next() {
-                cards.push(Self::new_simple(question, answer));
-            }
-        }
-        cards.into()
-    }
-
-    pub fn new_simple(front: String, back: String) -> Self {
-        Card {
-            front,
-            back,
-            id: Uuid::new_v4(),
-            finished: true,
-            ..Default::default()
-        }
-    }
-}
-
-#[derive(Ord, PartialOrd, Eq, PartialEq, Hash, Debug, Clone)]
-pub enum IsSuspended {
-    False,
-    True,
-    // Card is temporarily suspended, until contained unix time has passed.
-    TrueUntil(Duration),
-}
-
-impl From<bool> for IsSuspended {
-    fn from(value: bool) -> Self {
-        match value {
-            true => Self::True,
-            false => Self::False,
-        }
-    }
-}
-
-impl Default for IsSuspended {
-    fn default() -> Self {
-        Self::False
-    }
-}
-
-impl IsSuspended {
-    fn verify_time(self) -> Self {
-        if let Self::TrueUntil(dur) = self {
-            if dur < current_time() {
-                return Self::False;
-            }
-        }
-        self
-    }
-
-    pub fn is_suspended(&self) -> bool {
-        !matches!(self, IsSuspended::False)
-    }
-
-    pub fn is_not_suspended(&self) -> bool {
-        !self.is_suspended()
-    }
-}
-
-impl Serialize for IsSuspended {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::ser::Serializer,
-    {
-        match self.clone().verify_time() {
-            IsSuspended::False => serializer.serialize_bool(false),
-            IsSuspended::True => serializer.serialize_bool(true),
-            IsSuspended::TrueUntil(duration) => serializer.serialize_u64(duration.as_secs()),
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for IsSuspended {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let value: Value = Deserialize::deserialize(deserializer)?;
-
-        match value {
-            Value::Boolean(b) => Ok(b.into()),
-            Value::Integer(i) => {
-                if let Ok(secs) = std::convert::TryInto::<u64>::try_into(i) {
-                    Ok(IsSuspended::TrueUntil(Duration::from_secs(secs)).verify_time())
-                } else {
-                    Err(de::Error::custom("Invalid duration format"))
-                }
-            }
-
-            _ => Err(serde::de::Error::custom("Invalid value for IsDisabled")),
-        }
-    }
-}
-
-fn default_finished() -> bool {
-    true
 }
