@@ -5,7 +5,7 @@ use crate::common::{open_file_with_vim, system_time_as_unix_time};
 use crate::concept::{AttributeId, ConceptId};
 use crate::paths;
 use crate::reviews::{Recall, Review, Reviews};
-use crate::{common::current_time, common::Id};
+use crate::{common::current_time, common::CardId};
 use rayon::prelude::*;
 use samsvar::json;
 use samsvar::Matcher;
@@ -94,24 +94,12 @@ impl SavedCard {
     }
 
     // potentially expensive function!
-    pub fn from_id(id: &Id) -> Option<Self> {
+    pub fn from_id(id: &CardId) -> Option<Self> {
         let path = cache::path_from_id(*id)?;
         Self::from_path(&path).into()
     }
 
-    pub fn xload_pending(filter: Option<String>) -> Vec<Id> {
-        let mut cards = Self::load_all_cards();
-
-        cards.retain(|card| card.history.is_empty());
-
-        if let Some(filter) = filter {
-            cards.retain(|card| card.eval(filter.clone()));
-        }
-
-        cards.iter().map(|card| card.id()).collect()
-    }
-
-    pub fn load_pending(filter: Option<String>) -> Vec<Id> {
+    pub fn load_pending(filter: Option<String>) -> Vec<CardId> {
         Self::load_all_cards()
             .into_par_iter()
             .filter(|card| card.history.is_empty())
@@ -126,7 +114,7 @@ impl SavedCard {
             .collect()
     }
 
-    pub fn load_non_pending(filter: Option<String>) -> Vec<Id> {
+    pub fn load_non_pending(filter: Option<String>) -> Vec<CardId> {
         Self::load_all_cards()
             .into_par_iter()
             .filter(|card| !card.history.is_empty())
@@ -167,6 +155,8 @@ impl SavedCard {
             panic!();
         };
 
+        let suspended = card.suspended;
+
         let location = CardLocation::new(path);
 
         let last_modified = {
@@ -189,7 +179,7 @@ impl SavedCard {
             location,
             last_modified,
             history,
-            suspended: IsSuspended::default(),
+            suspended: IsSuspended::from(suspended),
         }
     }
 }
@@ -202,7 +192,7 @@ impl SavedCard {
         self.history.save(self.id());
     }
 
-    pub fn set_ref(&mut self, id: Id) {
+    pub fn set_ref(&mut self, id: CardId) {
         match &mut self.card.data {
             CardType::Normal { ref mut back, .. } => {
                 *back = BackSide::Card(id);
@@ -225,13 +215,6 @@ impl SavedCard {
         Some(current_time() - self.history.0.last()?.timestamp)
     }
 
-    pub fn save_reviews(&self) {
-        let s: String = serde_json::to_string_pretty(self.reviews()).unwrap();
-        let path = paths::get_review_path().join(self.id().to_string());
-        let mut file = fs::File::create(&path).unwrap();
-        file.write_all(&mut s.as_bytes()).unwrap();
-    }
-
     pub fn recall_rate_at(&self, current_unix: Duration) -> Option<RecallRate> {
         crate::recall_rate::recall_rate(&self.history, current_unix)
     }
@@ -240,19 +223,15 @@ impl SavedCard {
         crate::recall_rate::recall_rate(&self.history, now)
     }
 
-    pub fn rm_dependency(&mut self, dependency: Id) -> bool {
+    pub fn rm_dependency(&mut self, dependency: CardId) -> bool {
         let res = self.card.dependencies.remove(&dependency);
         self.persist();
         res
     }
 
-    pub fn set_attribute(&mut self, id: AttributeId, concept_card: Id) {
+    pub fn set_attribute(&mut self, id: AttributeId, concept_card: CardId) {
         let back = self.back_side().unwrap().to_owned();
-        let data = CardType::Attribute {
-            back,
-            attribute: id,
-            concept_card,
-        };
+        let data = CardType::new_attribute(id, concept_card, back.into());
         self.card.data = data;
         self.persist();
     }
@@ -268,7 +247,7 @@ impl SavedCard {
         &self.card.data
     }
 
-    pub fn set_dependency(&mut self, dependency: Id) {
+    pub fn set_dependency(&mut self, dependency: CardId) {
         if self.id() == dependency {
             return;
         }
@@ -289,8 +268,8 @@ impl SavedCard {
         true
     }
 
-    fn all_dependencies(&self) -> Vec<Id> {
-        fn inner(id: Id, deps: &mut Vec<Id>) {
+    fn all_dependencies(&self) -> Vec<CardId> {
+        fn inner(id: CardId, deps: &mut Vec<CardId>) {
             let Some(card) = SavedCard::from_id(&id) else {
                 return;
             };
@@ -358,11 +337,11 @@ impl SavedCard {
         self.time_passed_since_last_review()
     }
 
-    pub fn id(&self) -> Id {
+    pub fn id(&self) -> CardId {
         self.card.id
     }
 
-    pub fn dependency_ids(&self) -> BTreeSet<Id> {
+    pub fn dependency_ids(&self) -> BTreeSet<CardId> {
         let mut deps = self.card.dependencies.clone();
         deps.extend(self.card.data.dependencies());
         deps

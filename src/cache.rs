@@ -1,8 +1,8 @@
-use crate::{common::Id, paths, SavedCard};
+use crate::{common::CardId, paths, SavedCard};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs::read_to_string, path::PathBuf};
 
-pub fn add_dependent(card: Id, dependent: Id) {
+pub fn add_dependent(card: CardId, dependent: CardId) {
     if card == dependent {
         return;
     }
@@ -22,7 +22,7 @@ pub fn add_dependent(card: Id, dependent: Id) {
     info.save(card);
 }
 
-pub fn dependents_from_id(id: Id) -> Vec<Id> {
+pub fn dependents_from_id(id: CardId) -> Vec<CardId> {
     match CacheInfo::load_and_verify(id) {
         Some(info) => info.dependents,
         None => {
@@ -34,7 +34,7 @@ pub fn dependents_from_id(id: Id) -> Vec<Id> {
     }
 }
 
-pub fn path_from_id(id: Id) -> Option<PathBuf> {
+pub fn path_from_id(id: CardId) -> Option<PathBuf> {
     match CacheInfo::load_and_verify(id) {
         Some(info) => Some(info.path),
         None => {
@@ -71,31 +71,31 @@ fn sync_cache() {
     }
 }
 
-fn id_path(id: &Id) -> PathBuf {
+fn id_path(id: &CardId) -> PathBuf {
     paths::get_cache_path().join(id.to_string())
 }
 
 #[derive(Debug, Serialize, Deserialize, Hash)]
 struct CacheInfo {
     path: PathBuf,
-    dependents: Vec<Id>,
+    dependents: Vec<CardId>,
 }
 
 impl CacheInfo {
-    fn save(&self, id: Id) -> CacheInfo {
+    fn save(&self, id: CardId) -> CacheInfo {
         let mut s: String = toml::to_string_pretty(self).unwrap();
         let path = id_path(&id);
         std::fs::write(path, &mut s).unwrap();
         Self::load(id).unwrap()
     }
 
-    fn load(id: Id) -> Option<CacheInfo> {
+    fn load(id: CardId) -> Option<CacheInfo> {
         let path = id_path(&id);
         let info = toml::from_str(&read_to_string(&path).ok()?).ok()?;
         Some(info)
     }
 
-    fn load_and_verify(id: Id) -> Option<CacheInfo> {
+    fn load_and_verify(id: CardId) -> Option<CacheInfo> {
         let info = Self::load(id)?;
         info.path.exists().then_some(info)
     }

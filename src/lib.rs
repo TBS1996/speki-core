@@ -15,54 +15,60 @@ use std::path::{Path, PathBuf};
 use card::CardType;
 pub use card::SavedCard;
 use categories::Category;
-use common::Id;
+use common::CardId;
 use concept::{Attribute, Concept, ConceptId};
 use reviews::Recall;
 use samsvar::Matcher;
 use sanitize_filename::sanitize;
 
-pub fn load_cards() -> Vec<Id> {
+pub fn load_cards() -> Vec<CardId> {
     SavedCard::load_all_cards()
         .iter()
         .map(|card| card.id())
         .collect()
 }
 
-pub fn get_cached_dependents(id: Id) -> Vec<Id> {
+pub fn load_and_persist() {
+    for mut card in SavedCard::load_all_cards() {
+        card.persist();
+    }
+}
+
+pub fn get_cached_dependents(id: CardId) -> Vec<CardId> {
     cache::dependents_from_id(id)
 }
 
-pub fn cards_filtered(filter: String) -> Vec<Id> {
+pub fn cards_filtered(filter: String) -> Vec<CardId> {
     let mut cards = SavedCard::load_all_cards();
     cards.retain(|card| card.clone().eval(filter.clone()));
     cards.iter().map(|card| card.id()).collect()
 }
 
-pub fn add_card(front: String, back: String, cat: &Category) -> Id {
+pub fn add_card(front: String, back: String, cat: &Category) -> CardId {
     let card = card::Card::new_simple(front, back);
     SavedCard::new_at(card, cat).id()
 }
 
-pub fn add_unfinished(front: String, category: &Category) -> Id {
+pub fn add_unfinished(front: String, category: &Category) -> CardId {
     let card = card::Card::new_simple(front, "".to_string());
     SavedCard::new_at(card, category).id()
 }
 
-pub fn review(card_id: Id, grade: Recall) {
+pub fn review(card_id: CardId, grade: Recall) {
     let mut card = SavedCard::from_id(&card_id).unwrap();
     card.new_review(grade, Default::default());
 }
 
 use eyre::Result;
 
-pub fn set_concept(card_id: Id, concept: ConceptId) -> Result<()> {
+pub fn set_concept(card_id: CardId, concept: ConceptId) -> Result<()> {
     assert!(Concept::load(concept).is_some(), "concept not found??");
     let mut card = SavedCard::from_id(&card_id).unwrap();
     card.set_concept(concept);
     Ok(())
 }
 
-pub fn set_dependency(card_id: Id, dependency: Id) {
+pub fn set_dependency(card_id: CardId, dependency: CardId) {
     if card_id == dependency {
         return;
     }
@@ -72,11 +78,11 @@ pub fn set_dependency(card_id: Id, dependency: Id) {
     cache::add_dependent(dependency, card_id);
 }
 
-pub fn card_from_id(card_id: Id) -> SavedCard {
+pub fn card_from_id(card_id: CardId) -> SavedCard {
     SavedCard::from_id(&card_id).unwrap()
 }
 
-pub fn delete(card_id: Id) {
+pub fn delete(card_id: CardId) {
     let path = SavedCard::from_id(&card_id).unwrap().as_path();
     std::fs::remove_file(path).unwrap();
 }
@@ -86,7 +92,7 @@ pub fn as_graph() -> String {
     graphviz::export()
 }
 
-pub fn edit(card_id: Id) {
+pub fn edit(card_id: CardId) {
     SavedCard::from_id(&card_id).unwrap().edit_with_vim();
 }
 

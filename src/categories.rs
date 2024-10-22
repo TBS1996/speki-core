@@ -3,8 +3,6 @@ use crate::paths::{self};
 use std::path::Path;
 use std::path::PathBuf;
 
-use rayon::prelude::*;
-
 // Represent the category that a card is in, can be nested
 #[derive(Ord, PartialOrd, Eq, Hash, Debug, Clone, PartialEq, Default)]
 pub struct Category {

@@ -1,5 +1,4 @@
-use crate::common::{current_time, Id};
-use crate::common::{serde_duration_as_float_secs, serde_duration_as_secs};
+use crate::common::{current_time, CardId};
 use crate::paths::get_review_path;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
@@ -11,7 +10,7 @@ use std::time::Duration;
 pub struct Reviews(pub Vec<Review>);
 
 impl Reviews {
-    pub fn save(&self, id: Id) {
+    pub fn save(&self, id: CardId) {
         let path = get_review_path();
         fs::create_dir_all(&path).unwrap();
         let path = path.join(id.to_string());
@@ -82,15 +81,13 @@ impl Reviews {
     }
 }
 
-#[derive(Ord, PartialOrd, Eq, PartialEq, Hash, Deserialize, Clone, Serialize, Debug, Default)]
+#[derive(Ord, PartialOrd, Eq, PartialEq, Hash, Clone, Debug, Default)]
 pub struct Review {
     // When (unix time) did the review take place?
-    #[serde(with = "serde_duration_as_secs")]
     pub timestamp: Duration,
     // Recall grade.
     pub grade: Recall,
     // How long you spent before attempting recall.
-    #[serde(with = "serde_duration_as_float_secs")]
     pub time_spent: Duration,
 }
 

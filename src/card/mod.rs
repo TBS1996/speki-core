@@ -1,7 +1,7 @@
 use crate::categories::Category;
 use crate::concept::{Attribute, Concept};
 use crate::concept::{AttributeId, ConceptId};
-use crate::{common::current_time, common::Id};
+use crate::{common::current_time, common::CardId};
 use serde::de::Deserializer;
 use serde::{de, Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -42,25 +42,31 @@ impl CardLocation {
     }
 }
 
-#[derive(Serialize, Deserialize, Default)]
+fn is_false(flag: &bool) -> bool {
+    !flag
+}
+
+#[derive(Serialize, Deserialize, Default, Debug)]
 struct RawCard {
     id: Uuid,
     front: Option<String>,
     back: Option<String>,
     name: Option<String>,
-    concept: Option<ConceptId>,
-    concept_card: Option<Id>,
-    attribute: Option<AttributeId>,
+    concept: Option<Uuid>,
+    concept_card: Option<Uuid>,
+    attribute: Option<Uuid>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    dependencies: BTreeSet<Id>,
+    dependencies: BTreeSet<Uuid>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     tags: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    suspended: bool,
 }
 
 impl RawCard {
     fn from_card(card: Card) -> Self {
         let mut raw = Self::default();
-        raw.id = card.id;
+        raw.id = card.id.into_inner();
 
         match card.data {
             CardType::Normal { front, back } => {
@@ -69,7 +75,7 @@ impl RawCard {
             }
             CardType::Concept { name, concept } => {
                 raw.name = Some(name);
-                raw.concept = Some(concept);
+                raw.concept = Some(concept.into_inner());
             }
             CardType::Attribute {
                 back,
@@ -77,15 +83,19 @@ impl RawCard {
                 concept_card,
             } => {
                 raw.back = Some(back.serialize());
-                raw.attribute = Some(attribute);
-                raw.concept_card = Some(concept_card);
+                raw.attribute = Some(attribute.into_inner());
+                raw.concept_card = Some(concept_card.into_inner());
             }
             CardType::Unfinished { front } => {
                 raw.front = Some(front);
             }
         };
 
-        raw.dependencies = card.dependencies;
+        raw.dependencies = card
+            .dependencies
+            .into_iter()
+            .map(|id| id.into_inner())
+            .collect();
         raw.tags = card.tags;
 
         raw
@@ -97,13 +107,7 @@ impl RawCard {
             concept_card = if let Some(concept) = self.concept_card {
                 Some(concept)
             } else {
-                Some(
-                    self.dependencies
-                        .iter()
-                        .find(|id| SavedCard::from_id(id).unwrap().concept().is_some())
-                        .copied()
-                        .unwrap(),
-                )
+                panic!("missing concept card: {:?}", self);
             };
         };
 
@@ -115,15 +119,18 @@ impl RawCard {
             self.attribute,
         ) {
             (None, Some(back), None, None, Some(attribute)) => CardType::Attribute {
-                attribute,
+                attribute: AttributeId::verify(&attribute).unwrap(),
                 back: back.into(),
-                concept_card: concept_card.unwrap(),
+                concept_card: CardId(concept_card.unwrap()),
             },
             (Some(front), Some(back), None, None, None) => CardType::Normal {
                 front,
                 back: back.into(),
             },
-            (None, None, Some(name), Some(concept), None) => CardType::Concept { name, concept },
+            (None, None, Some(name), Some(concept), None) => CardType::Concept {
+                name,
+                concept: ConceptId::verify(&concept).unwrap(),
+            },
             (Some(front), None, None, None, None) => CardType::Unfinished { front },
             other => {
                 println!("invalid combination of args: {:?}", other);
@@ -133,9 +140,10 @@ impl RawCard {
 
         Some(Card {
             data,
-            id: self.id,
-            dependencies: self.dependencies,
+            id: CardId(self.id),
+            dependencies: self.dependencies.into_iter().map(|id| CardId(id)).collect(),
             tags: self.tags,
+            suspended: self.suspended,
         })
     }
 }
@@ -143,7 +151,7 @@ impl RawCard {
 #[derive(Ord, PartialOrd, Eq, Hash, PartialEq, Debug, Clone)]
 pub enum BackSide {
     Text(String),
-    Card(Id),
+    Card(CardId),
 }
 
 impl Default for BackSide {
@@ -155,7 +163,7 @@ impl Default for BackSide {
 impl From<String> for BackSide {
     fn from(s: String) -> Self {
         if let Ok(id) = s.parse::<Uuid>() {
-            Self::Card(id)
+            Self::Card(CardId(id))
         } else {
             Self::Text(s)
         }
@@ -195,7 +203,7 @@ pub enum CardType {
     Attribute {
         attribute: AttributeId,
         back: BackSide,
-        concept_card: Id,
+        concept_card: CardId,
     },
     Unfinished {
         front: String,
@@ -203,6 +211,25 @@ pub enum CardType {
 }
 
 impl CardType {
+    pub fn new_attribute(attribute: AttributeId, concept_card: CardId, back: BackSide) -> Self {
+        let concept = SavedCard::from_id(&concept_card)
+            .unwrap()
+            .concept()
+            .unwrap();
+
+        assert_eq!(
+            concept,
+            Attribute::load(attribute).unwrap().concept,
+            "card concept doesnt match attribute concept"
+        );
+
+        Self::Attribute {
+            attribute,
+            back,
+            concept_card,
+        }
+    }
+
     pub fn is_normal(&self) -> bool {
         matches!(self, Self::Normal { .. })
     }
@@ -225,7 +252,7 @@ impl CardType {
         }
     }
 
-    pub fn dependencies(&self) -> BTreeSet<Id> {
+    pub fn dependencies(&self) -> BTreeSet<CardId> {
         let mut dependencies = BTreeSet::default();
 
         match self {
@@ -258,10 +285,11 @@ impl CardType {
 
 #[derive(Ord, PartialOrd, Eq, Hash, PartialEq, Debug, Clone)]
 pub struct Card {
-    pub id: Id,
+    pub id: CardId,
     pub data: CardType,
-    pub dependencies: BTreeSet<Id>,
+    pub dependencies: BTreeSet<CardId>,
     pub tags: BTreeMap<String, String>,
+    pub suspended: bool,
 }
 
 impl Card {
@@ -270,20 +298,14 @@ impl Card {
     }
 
     pub fn new(data: CardType) -> Self {
-        let dependencies = if let CardType::Attribute { attribute, .. } = &data {
-            let concept = Attribute::load(*attribute).unwrap().concept;
-            let mut set = BTreeSet::new();
-            set.insert(concept);
-            set
-        } else {
-            Default::default()
-        };
+        let dependencies = data.dependencies();
 
         Self {
-            id: Uuid::new_v4(),
+            id: CardId(Uuid::new_v4()),
             data,
             dependencies,
             tags: Default::default(),
+            suspended: false,
         }
     }
 
@@ -319,9 +341,10 @@ impl Card {
         };
         Card {
             data,
-            id: Uuid::new_v4(),
+            id: CardId(Uuid::new_v4()),
             dependencies: Default::default(),
             tags: Default::default(),
+            suspended: false,
         }
     }
 }

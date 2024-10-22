@@ -1,7 +1,7 @@
 use crate::paths::get_attributes_path;
 use crate::SavedCard;
 use crate::{
-    common::Id, get_containing_file_paths, my_sanitize_filename, paths::get_concepts_path,
+    common::CardId, get_containing_file_paths, my_sanitize_filename, paths::get_concepts_path,
 };
 use eyre::Result;
 use serde::{Deserialize, Serialize};
@@ -10,14 +10,59 @@ use std::fs;
 use std::io::Write;
 use uuid::Uuid;
 
-pub type ConceptId = Uuid;
-pub type AttributeId = Uuid;
+#[derive(Serialize, Deserialize, Debug, Clone, Ord, Eq, PartialEq, PartialOrd, Copy, Hash)]
+#[serde(transparent)]
+pub struct ConceptId(Uuid);
+
+impl ConceptId {
+    pub fn into_inner(self) -> Uuid {
+        self.0
+    }
+
+    pub fn verify(id: impl AsRef<Uuid>) -> Option<Self> {
+        if let Some(concept) = Concept::load(Self(*id.as_ref())) {
+            Some(concept.id)
+        } else {
+            None
+        }
+    }
+}
+
+impl AsRef<Uuid> for ConceptId {
+    fn as_ref(&self) -> &Uuid {
+        &self.0
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Ord, Eq, PartialEq, PartialOrd, Copy, Hash)]
+#[serde(transparent)]
+pub struct AttributeId(Uuid);
+
+impl AsRef<Uuid> for AttributeId {
+    fn as_ref(&self) -> &Uuid {
+        &self.0
+    }
+}
+
+impl AttributeId {
+    pub fn into_inner(self) -> Uuid {
+        self.0
+    }
+
+    pub fn verify(id: impl AsRef<Uuid>) -> Option<Self> {
+        if let Some(concept) = Attribute::load(Self(*id.as_ref())) {
+            Some(concept.id)
+        } else {
+            None
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Concept {
     pub name: String,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    pub dependencies: BTreeSet<Id>,
+    pub dependencies: BTreeSet<CardId>,
     pub id: ConceptId,
 }
 
@@ -50,7 +95,7 @@ impl Concept {
         let concept = Self {
             name,
             dependencies: Default::default(),
-            id: Uuid::new_v4(),
+            id: ConceptId(Uuid::new_v4()),
         };
         concept.save().unwrap();
         concept.id
@@ -63,11 +108,11 @@ pub struct Attribute {
     pub id: AttributeId,
     pub concept: ConceptId,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    pub dependencies: BTreeSet<Id>,
+    pub dependencies: BTreeSet<CardId>,
 }
 
 impl Attribute {
-    pub fn name(&self, card: Id) -> String {
+    pub fn name(&self, card: CardId) -> String {
         let card_text = SavedCard::from_id(&card).unwrap().print();
         if self.pattern.contains("{}") {
             self.pattern.replace("{}", &card_text)
@@ -113,7 +158,7 @@ impl Attribute {
     pub fn create(pattern: String, concept: ConceptId) -> AttributeId {
         let attr = Self {
             pattern,
-            id: Uuid::new_v4(),
+            id: AttributeId(Uuid::new_v4()),
             concept,
             dependencies: Default::default(),
         };

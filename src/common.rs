@@ -1,18 +1,42 @@
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::io::{self, ErrorKind};
 use std::path::Path;
 use std::process::Command;
+use std::str::FromStr;
+use std::time::SystemTime;
 use std::time::{Duration, UNIX_EPOCH};
 use uuid::Uuid;
 
-//use crate::paths::get_cards_path;
-use std::io::{self, ErrorKind};
+#[derive(Serialize, Deserialize, Debug, Clone, Ord, Eq, PartialEq, PartialOrd, Copy, Hash)]
+#[serde(transparent)]
+pub struct CardId(pub Uuid);
 
-use std::time::SystemTime;
+impl FromStr for CardId {
+    type Err = uuid::Error;
 
-use crate::paths::get_review_path;
-use crate::SavedCard;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Uuid::from_str(s).map(CardId)
+    }
+}
 
-pub type Id = Uuid;
+impl AsRef<Uuid> for CardId {
+    fn as_ref(&self) -> &Uuid {
+        &self.0
+    }
+}
+
+impl CardId {
+    pub fn into_inner(self) -> Uuid {
+        self.0
+    }
+}
+
+impl fmt::Display for CardId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 pub fn duration_to_days(dur: &Duration) -> f32 {
     dur.as_secs_f32() / 86400.
@@ -47,77 +71,9 @@ pub fn truncate_string(input: String, max_len: usize) -> String {
     result
 }
 
-/// Returns the ids of all cards that have at least one review
-///
-/// meaning, it has an entry in the reviews folder.
-pub fn get_reviewed_cards() -> Vec<Id> {
-    let mut cards = vec![];
-
-    for file in std::fs::read_dir(&get_review_path()).unwrap() {
-        let file = file.unwrap();
-        if file.file_type().as_ref().unwrap().is_dir() {
-            continue;
-        }
-
-        let path = file.path();
-        let name = path.file_name().unwrap();
-        let id: Id = name.to_str().unwrap().parse().unwrap();
-
-        // The reviews folder can have ids that no longer refer to a card if it was deleted so we gotta check
-        // that it actually exists first
-        if SavedCard::from_id(&id).is_some() {
-            cards.push(id);
-        }
-    }
-
-    cards
-}
-
 pub fn filename_sanitizer(s: &str) -> String {
     let s = s.replace(" ", "_").replace("'", "");
     sanitize_filename::sanitize(s)
-}
-
-pub mod serde_duration_as_float_secs {
-    use serde::{Deserialize, Deserializer, Serializer};
-    use std::time::Duration;
-
-    pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let secs = duration.as_secs_f32();
-        serializer.serialize_f32(secs)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let secs = f32::deserialize(deserializer)?;
-        Ok(Duration::from_secs_f32(secs))
-    }
-}
-
-pub mod serde_duration_as_secs {
-    use serde::{Deserialize, Deserializer, Serializer};
-    use std::time::Duration;
-
-    pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let secs = duration.as_secs();
-        serializer.serialize_u64(secs)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let secs = u64::deserialize(deserializer)?;
-        Ok(Duration::from_secs(secs))
-    }
 }
 
 pub fn open_file_with_vim(path: &Path) -> io::Result<()> {
@@ -141,20 +97,4 @@ pub fn get_last_modified(path: &Path) -> Duration {
         .map(|s| s.as_secs())
         .unwrap();
     Duration::from_secs(secs)
-}
-
-pub fn serialize_duration<S>(duration: &Option<Duration>, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let days = duration.as_ref().map(duration_to_days);
-    days.serialize(serializer)
-}
-
-pub fn deserialize_duration<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let days = Option::<f32>::deserialize(deserializer)?;
-    Ok(days.map(days_to_duration))
 }
