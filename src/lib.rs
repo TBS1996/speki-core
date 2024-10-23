@@ -12,8 +12,8 @@ pub mod reviews;
 
 use std::path::{Path, PathBuf};
 
-use card::CardType;
 pub use card::SavedCard;
+use card::{AnyType, AttributeCard, CardTrait, ConceptCard, NormalCard, UnfinishedCard};
 use categories::Category;
 use common::CardId;
 use concept::{Attribute, Concept, ConceptId};
@@ -45,13 +45,16 @@ pub fn cards_filtered(filter: String) -> Vec<CardId> {
 }
 
 pub fn add_card(front: String, back: String, cat: &Category) -> CardId {
-    let card = card::Card::new_simple(front, back);
-    SavedCard::new_at(card, cat).id()
+    let data = NormalCard {
+        front,
+        back: back.into(),
+    };
+    SavedCard::<AnyType>::new_normal(data, cat).id()
 }
 
 pub fn add_unfinished(front: String, category: &Category) -> CardId {
-    let card = card::Card::new_simple(front, "".to_string());
-    SavedCard::new_at(card, category).id()
+    let data = UnfinishedCard { front };
+    SavedCard::<AnyType>::new_unfinished(data, category).id()
 }
 
 pub fn review(card_id: CardId, grade: Recall) {
@@ -62,9 +65,14 @@ pub fn review(card_id: CardId, grade: Recall) {
 use eyre::Result;
 
 pub fn set_concept(card_id: CardId, concept: ConceptId) -> Result<()> {
+    let card = SavedCard::from_id(&card_id).unwrap();
     assert!(Concept::load(concept).is_some(), "concept not found??");
-    let mut card = SavedCard::from_id(&card_id).unwrap();
-    card.set_concept(concept);
+
+    let concept = ConceptCard {
+        name: card.card_type().display_front(),
+        concept,
+    };
+    card.into_concept(concept);
     Ok(())
 }
 
@@ -78,7 +86,7 @@ pub fn set_dependency(card_id: CardId, dependency: CardId) {
     cache::add_dependent(dependency, card_id);
 }
 
-pub fn card_from_id(card_id: CardId) -> SavedCard {
+pub fn card_from_id(card_id: CardId) -> SavedCard<AnyType> {
     SavedCard::from_id(&card_id).unwrap()
 }
 
@@ -198,11 +206,11 @@ pub fn health_check() {
 
 fn verify_attributes() {
     for card in SavedCard::load_all_cards() {
-        if let CardType::Attribute {
+        if let AnyType::Attribute(AttributeCard {
             attribute,
             concept_card,
             ..
-        } = card.card_type()
+        }) = card.card_type()
         {
             if Attribute::load(*attribute).is_none() {
                 println!("error loading attribute for: {:?}", &card);

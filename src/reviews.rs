@@ -1,5 +1,5 @@
 use crate::common::{current_time, CardId};
-use crate::paths::get_review_path;
+use crate::paths::{self, get_review_path};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::Write;
@@ -10,6 +10,16 @@ use std::time::Duration;
 pub struct Reviews(pub Vec<Review>);
 
 impl Reviews {
+    pub fn load(id: CardId) -> Option<Self> {
+        let path = paths::get_review_path().join(id.to_string());
+        if path.exists() {
+            let s = fs::read_to_string(path).unwrap();
+            Some(Self::from_str(&s))
+        } else {
+            None
+        }
+    }
+
     pub fn save(&self, id: CardId) {
         let path = get_review_path();
         fs::create_dir_all(&path).unwrap();
