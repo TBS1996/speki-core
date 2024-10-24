@@ -1,4 +1,4 @@
-use crate::{common::CardId, paths, SavedCard};
+use crate::{common::CardId, paths, Card};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs::read_to_string, path::PathBuf};
 
@@ -46,7 +46,7 @@ pub fn path_from_id(id: CardId) -> Option<PathBuf> {
 
 fn sync_cache() {
     let mut infos = HashMap::new();
-    let cards = SavedCard::load_all_cards();
+    let cards = Card::load_all_cards();
 
     for card in &cards {
         infos.insert(

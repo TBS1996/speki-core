@@ -10,7 +10,7 @@ use toml::Value;
 use uuid::Uuid;
 
 use super::{
-    AnyType, AttributeCard, ConceptCard, IsSuspended, NormalCard, SavedCard, UnfinishedCard,
+    AnyType, AttributeCard, BackSide, Card, ConceptCard, IsSuspended, NormalCard, UnfinishedCard,
 };
 
 fn is_false(flag: &bool) -> bool {
@@ -20,7 +20,7 @@ fn is_false(flag: &bool) -> bool {
 #[derive(Serialize, Deserialize, Default, Debug)]
 pub struct RawType {
     pub front: Option<String>,
-    pub back: Option<String>,
+    pub back: Option<BackSide>,
     pub name: Option<String>,
     pub concept: Option<Uuid>,
     pub concept_card: Option<Uuid>,
@@ -39,15 +39,11 @@ impl RawType {
         ) {
             (None, Some(back), None, None, Some(attribute), Some(concept_card)) => AttributeCard {
                 attribute: AttributeId::verify(&attribute).unwrap(),
-                back: back.into(),
+                back,
                 concept_card: CardId(concept_card),
             }
             .into(),
-            (Some(front), Some(back), None, None, None, None) => NormalCard {
-                front,
-                back: back.into(),
-            }
-            .into(),
+            (Some(front), Some(back), None, None, None, None) => NormalCard { front, back }.into(),
             (None, None, Some(name), Some(concept), None, None) => ConceptCard {
                 name,
                 concept: ConceptId::verify(&concept).unwrap(),
@@ -71,7 +67,7 @@ impl RawType {
             AnyType::Normal(ty) => {
                 let NormalCard { front, back } = ty;
                 raw.front = Some(front);
-                raw.back = Some(back.serialize());
+                raw.back = Some(back);
             }
             AnyType::Unfinished(ty) => {
                 let UnfinishedCard { front } = ty;
@@ -84,7 +80,7 @@ impl RawType {
                     concept_card,
                 } = ty;
                 raw.attribute = Some(attribute.into_inner());
-                raw.back = Some(back.serialize());
+                raw.back = Some(back);
                 raw.concept_card = Some(concept_card.into_inner());
             }
         };
@@ -107,10 +103,10 @@ pub struct RawCard {
 }
 
 impl RawCard {
-    pub fn save(self, path: &Path) -> SavedCard<AnyType> {
+    pub fn save(self, path: &Path) -> Card<AnyType> {
         let toml = toml::to_string(&self).unwrap();
         std::fs::write(&path, toml).unwrap();
-        SavedCard::from_path(path)
+        Card::from_path(path)
     }
 
     pub fn new(card: impl Into<AnyType>) -> Self {
@@ -153,7 +149,7 @@ impl RawCard {
         }
     }
 
-    pub fn from_card(card: SavedCard<AnyType>) -> Self {
+    pub fn from_card(card: Card<AnyType>) -> Self {
         Self {
             id: card.id.into_inner(),
             data: RawType::from_any(card.data),

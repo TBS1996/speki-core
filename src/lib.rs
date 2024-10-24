@@ -12,7 +12,7 @@ pub mod reviews;
 
 use std::path::{Path, PathBuf};
 
-pub use card::SavedCard;
+pub use card::Card;
 use card::{AnyType, AttributeCard, CardTrait, ConceptCard, NormalCard, UnfinishedCard};
 use categories::Category;
 use common::CardId;
@@ -22,14 +22,14 @@ use samsvar::Matcher;
 use sanitize_filename::sanitize;
 
 pub fn load_cards() -> Vec<CardId> {
-    SavedCard::load_all_cards()
+    Card::load_all_cards()
         .iter()
         .map(|card| card.id())
         .collect()
 }
 
 pub fn load_and_persist() {
-    for mut card in SavedCard::load_all_cards() {
+    for mut card in Card::load_all_cards() {
         card.persist();
     }
 }
@@ -39,7 +39,7 @@ pub fn get_cached_dependents(id: CardId) -> Vec<CardId> {
 }
 
 pub fn cards_filtered(filter: String) -> Vec<CardId> {
-    let mut cards = SavedCard::load_all_cards();
+    let mut cards = Card::load_all_cards();
     cards.retain(|card| card.clone().eval(filter.clone()));
     cards.iter().map(|card| card.id()).collect()
 }
@@ -49,23 +49,23 @@ pub fn add_card(front: String, back: String, cat: &Category) -> CardId {
         front,
         back: back.into(),
     };
-    SavedCard::<AnyType>::new_normal(data, cat).id()
+    Card::<AnyType>::new_normal(data, cat).id()
 }
 
 pub fn add_unfinished(front: String, category: &Category) -> CardId {
     let data = UnfinishedCard { front };
-    SavedCard::<AnyType>::new_unfinished(data, category).id()
+    Card::<AnyType>::new_unfinished(data, category).id()
 }
 
 pub fn review(card_id: CardId, grade: Recall) {
-    let mut card = SavedCard::from_id(&card_id).unwrap();
+    let mut card = Card::from_id(&card_id).unwrap();
     card.new_review(grade, Default::default());
 }
 
 use eyre::Result;
 
 pub fn set_concept(card_id: CardId, concept: ConceptId) -> Result<()> {
-    let card = SavedCard::from_id(&card_id).unwrap();
+    let card = Card::from_id(&card_id).unwrap();
     assert!(Concept::load(concept).is_some(), "concept not found??");
 
     let concept = ConceptCard {
@@ -81,17 +81,17 @@ pub fn set_dependency(card_id: CardId, dependency: CardId) {
         return;
     }
 
-    let mut card = SavedCard::from_id(&card_id).unwrap();
+    let mut card = Card::from_id(&card_id).unwrap();
     card.set_dependency(dependency);
     cache::add_dependent(dependency, card_id);
 }
 
-pub fn card_from_id(card_id: CardId) -> SavedCard<AnyType> {
-    SavedCard::from_id(&card_id).unwrap()
+pub fn card_from_id(card_id: CardId) -> Card<AnyType> {
+    Card::from_id(&card_id).unwrap()
 }
 
 pub fn delete(card_id: CardId) {
-    let path = SavedCard::from_id(&card_id).unwrap().as_path();
+    let path = Card::from_id(&card_id).unwrap().as_path();
     std::fs::remove_file(path).unwrap();
 }
 
@@ -101,7 +101,7 @@ pub fn as_graph() -> String {
 }
 
 pub fn edit(card_id: CardId) {
-    SavedCard::from_id(&card_id).unwrap().edit_with_vim();
+    Card::from_id(&card_id).unwrap().edit_with_vim();
 }
 
 pub fn get_containing_file_paths(directory: &Path, ext: Option<&str>) -> Vec<PathBuf> {
@@ -132,12 +132,16 @@ pub fn my_sanitize_filename(s: &str) -> String {
 }
 
 mod graphviz {
+    use std::collections::BTreeSet;
+
     use super::*;
 
     pub fn export() -> String {
         let mut dot = String::from("digraph G {\nranksep=2.0;\nrankdir=BT;\n");
+        let mut relations = BTreeSet::default();
+        let cards = Card::load_all_cards();
 
-        for card in SavedCard::load_all_cards() {
+        for card in cards {
             let label = card
                 .print()
                 .to_string()
@@ -174,8 +178,12 @@ mod graphviz {
 
             // Create edges for dependencies, also enclosing IDs in quotes
             for child_id in card.dependency_ids() {
-                dot.push_str(&format!("    \"{}\" -> \"{}\";\n", card.id(), child_id));
+                relations.insert(format!("    \"{}\" -> \"{}\";\n", card.id(), child_id));
             }
+        }
+
+        for rel in relations {
+            dot.push_str(&rel);
         }
 
         dot.push_str("}\n");
@@ -205,7 +213,7 @@ pub fn health_check() {
 }
 
 fn verify_attributes() {
-    for card in SavedCard::load_all_cards() {
+    for card in Card::load_all_cards() {
         if let AnyType::Attribute(AttributeCard {
             attribute,
             concept_card,
@@ -216,7 +224,7 @@ fn verify_attributes() {
                 println!("error loading attribute for: {:?}", &card);
             }
 
-            match SavedCard::from_id(concept_card) {
+            match Card::from_id(concept_card) {
                 Some(concept_card) => {
                     if !card.card_type().is_concept() {
                         println!(

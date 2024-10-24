@@ -1,5 +1,5 @@
 use crate::paths::get_attributes_path;
-use crate::SavedCard;
+use crate::Card;
 use crate::{
     common::CardId, get_containing_file_paths, my_sanitize_filename, paths::get_concepts_path,
 };
@@ -113,7 +113,7 @@ pub struct Attribute {
 
 impl Attribute {
     pub fn name(&self, card: CardId) -> String {
-        let card_text = SavedCard::from_id(&card).unwrap().print();
+        let card_text = Card::from_id(&card).unwrap().print();
         if self.pattern.contains("{}") {
             self.pattern.replace("{}", &card_text)
         } else {

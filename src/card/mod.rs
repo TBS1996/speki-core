@@ -23,7 +23,12 @@ use uuid::Uuid;
 
 pub type RecallRate = f32;
 
+mod back_side;
+mod card_types;
 mod serializing;
+
+pub use back_side::*;
+pub use card_types::*;
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Hash, Clone, Debug)]
 pub struct CardLocation {
@@ -48,129 +53,6 @@ impl CardLocation {
     }
 }
 
-#[derive(Ord, PartialOrd, Eq, Hash, PartialEq, Debug, Clone)]
-pub enum BackSide {
-    Text(String),
-    Card(CardId),
-}
-
-impl Default for BackSide {
-    fn default() -> Self {
-        Self::Text(Default::default())
-    }
-}
-
-impl From<String> for BackSide {
-    fn from(s: String) -> Self {
-        if let Ok(id) = s.parse::<Uuid>() {
-            Self::Card(CardId(id))
-        } else {
-            Self::Text(s)
-        }
-    }
-}
-
-impl BackSide {
-    fn serialize(self) -> String {
-        match self {
-            BackSide::Text(s) => s,
-            BackSide::Card(id) => id.to_string(),
-        }
-    }
-}
-
-impl Display for BackSide {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let text = match self {
-            BackSide::Text(s) => s.to_owned(),
-            BackSide::Card(id) => SavedCard::from_id(id).unwrap().print(),
-        };
-
-        write!(f, "{}", text)
-    }
-}
-
-impl CardTrait for NormalCard {
-    fn get_dependencies(&self) -> BTreeSet<CardId> {
-        let mut set: BTreeSet<CardId> = Default::default();
-        if let BackSide::Card(id) = &self.back {
-            set.insert(*id);
-        }
-        set
-    }
-
-    fn display_front(&self) -> String {
-        self.front.clone()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct NormalCard {
-    pub front: String,
-    pub back: BackSide,
-}
-
-impl CardTrait for ConceptCard {
-    fn get_dependencies(&self) -> BTreeSet<CardId> {
-        Concept::load(self.concept).unwrap().dependencies
-    }
-
-    fn display_front(&self) -> String {
-        self.name.clone()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ConceptCard {
-    pub name: String,
-    pub concept: ConceptId,
-}
-
-impl CardTrait for AttributeCard {
-    fn get_dependencies(&self) -> BTreeSet<CardId> {
-        let mut dependencies = Attribute::load(self.attribute).unwrap().dependencies;
-        dependencies.extend(
-            SavedCard::from_id(&self.concept_card)
-                .unwrap()
-                .dependencies
-                .iter(),
-        );
-        if let BackSide::Card(id) = &self.back {
-            dependencies.insert(*id);
-        }
-
-        dependencies
-    }
-
-    fn display_front(&self) -> String {
-        Attribute::load(self.attribute)
-            .unwrap()
-            .name(self.concept_card)
-    }
-}
-
-impl CardTrait for UnfinishedCard {
-    fn get_dependencies(&self) -> BTreeSet<CardId> {
-        Default::default()
-    }
-
-    fn display_front(&self) -> String {
-        self.front.clone()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct AttributeCard {
-    pub attribute: AttributeId,
-    pub back: BackSide,
-    pub concept_card: CardId,
-}
-
-#[derive(Debug, Clone)]
-pub struct UnfinishedCard {
-    pub front: String,
-}
-
 pub trait CardTrait: Debug + Clone {
     fn get_dependencies(&self) -> BTreeSet<CardId>;
     fn display_front(&self) -> String;
@@ -189,34 +71,6 @@ pub trait CardTrait: Debug + Clone {
         }
 
         path
-    }
-}
-
-pub trait Reviewable {
-    fn display_back(&self) -> String;
-}
-
-impl<T: Reviewable + CardTrait> Reviewable for SavedCard<T> {
-    fn display_back(&self) -> String {
-        self.data.display_back()
-    }
-}
-
-impl Reviewable for AttributeCard {
-    fn display_back(&self) -> String {
-        self.back.to_string()
-    }
-}
-
-impl Reviewable for ConceptCard {
-    fn display_back(&self) -> String {
-        Concept::load(self.concept).unwrap().name
-    }
-}
-
-impl Reviewable for NormalCard {
-    fn display_back(&self) -> String {
-        self.back.to_string()
     }
 }
 
@@ -314,27 +168,6 @@ impl AnyType {
     }
 }
 
-impl From<NormalCard> for AnyType {
-    fn from(value: NormalCard) -> Self {
-        Self::Normal(value)
-    }
-}
-impl From<UnfinishedCard> for AnyType {
-    fn from(value: UnfinishedCard) -> Self {
-        Self::Unfinished(value)
-    }
-}
-impl From<AttributeCard> for AnyType {
-    fn from(value: AttributeCard) -> Self {
-        Self::Attribute(value)
-    }
-}
-impl From<ConceptCard> for AnyType {
-    fn from(value: ConceptCard) -> Self {
-        Self::Concept(value)
-    }
-}
-
 impl CardTrait for AnyType {
     fn get_dependencies(&self) -> BTreeSet<CardId> {
         match self {
@@ -360,7 +193,7 @@ impl CardTrait for AnyType {
 /// Don't save this in containers or pass to functions, rather use the Id, and get new instances of SavedCard from the cache.
 /// Also, every time you mutate it, call the persist() method.
 #[derive(Clone, Ord, PartialOrd, PartialEq, Eq, Hash, Debug)]
-pub struct SavedCard<T: CardTrait + ?Sized> {
+pub struct Card<T: CardTrait + ?Sized> {
     id: CardId,
     data: T,
     dependencies: BTreeSet<CardId>,
@@ -371,31 +204,31 @@ pub struct SavedCard<T: CardTrait + ?Sized> {
     suspended: IsSuspended,
 }
 
-impl<T: CardTrait> std::fmt::Display for SavedCard<T> {
+impl<T: CardTrait> std::fmt::Display for Card<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.data.display_front())
     }
 }
 
-impl<T: Reviewable + CardTrait> SavedCard<T> {
+impl<T: Reviewable + CardTrait> Card<T> {
     pub fn show_backside(&self) -> String {
         self.data.display_back()
     }
 }
 
-impl SavedCard<AttributeCard> {
-    pub fn new(attr: AttributeCard, category: &Category) -> SavedCard<AnyType> {
+impl Card<AttributeCard> {
+    pub fn new(attr: AttributeCard, category: &Category) -> Card<AnyType> {
         let raw = RawCard::new_attribute(attr);
         raw.save(&category.as_path())
     }
 }
 
-impl SavedCard<AnyType> {
+impl Card<AnyType> {
     pub fn card_type(&self) -> &AnyType {
         &self.data
     }
 
-    pub fn set_ref(mut self, reff: CardId) -> SavedCard<AnyType> {
+    pub fn set_ref(mut self, reff: CardId) -> Card<AnyType> {
         let backside = BackSide::Card(reff);
         self.data = self.data.set_backside(backside);
         self.persist();
@@ -403,7 +236,7 @@ impl SavedCard<AnyType> {
     }
 
     // potentially expensive function!
-    pub fn from_id(id: &CardId) -> Option<SavedCard<AnyType>> {
+    pub fn from_id(id: &CardId) -> Option<Card<AnyType>> {
         let path = cache::path_from_id(*id)?;
         Self::from_path(&path).into()
     }
@@ -437,7 +270,7 @@ impl SavedCard<AnyType> {
         *self = raw_card.save(&path)
     }
 
-    pub fn from_path(path: &Path) -> SavedCard<AnyType> {
+    pub fn from_path(path: &Path) -> Card<AnyType> {
         let content = read_to_string(path).expect("Could not read the TOML file");
         let Ok(raw_card) = toml::from_str::<RawCard>(&content) else {
             dbg!("faild to read card from path: ", path);
@@ -451,7 +284,7 @@ impl SavedCard<AnyType> {
 
         let id = CardId(raw_card.id);
 
-        SavedCard::<AnyType> {
+        Card::<AnyType> {
             id,
             data: raw_card.data.into_any(),
             dependencies: raw_card
@@ -467,46 +300,46 @@ impl SavedCard<AnyType> {
         }
     }
 
-    pub fn save_at(raw_card: RawCard, path: &Path) -> SavedCard<AnyType> {
+    pub fn save_at(raw_card: RawCard, path: &Path) -> Card<AnyType> {
         let s: String = toml::to_string_pretty(&raw_card).unwrap();
         let mut file = fs::File::create_new(&path).unwrap();
         file.write_all(&mut s.as_bytes()).unwrap();
         Self::from_path(&path)
     }
 
-    fn get_cards_from_categories(cats: Vec<Category>) -> Vec<SavedCard<AnyType>> {
+    fn get_cards_from_categories(cats: Vec<Category>) -> Vec<Card<AnyType>> {
         cats.into_par_iter()
             .flat_map(|cat| {
                 cat.get_containing_card_paths()
                     .into_par_iter()
                     .map(|path| Self::from_path(&path))
-                    .collect::<Vec<SavedCard<AnyType>>>()
+                    .collect::<Vec<Card<AnyType>>>()
             })
             .collect()
     }
 
-    pub fn new_normal(unfinished: NormalCard, category: &Category) -> SavedCard<AnyType> {
+    pub fn new_normal(unfinished: NormalCard, category: &Category) -> Card<AnyType> {
         let path = unfinished.generate_new_file_path(category);
         let raw_card = RawCard::new(unfinished);
         Self::save_at(raw_card, &path)
     }
-    pub fn new_attribute(unfinished: AttributeCard, category: &Category) -> SavedCard<AnyType> {
+    pub fn new_attribute(unfinished: AttributeCard, category: &Category) -> Card<AnyType> {
         let path = unfinished.generate_new_file_path(category);
         let raw_card = RawCard::new(unfinished);
         Self::save_at(raw_card, &path)
     }
-    pub fn new_concept(unfinished: ConceptCard, category: &Category) -> SavedCard<AnyType> {
+    pub fn new_concept(unfinished: ConceptCard, category: &Category) -> Card<AnyType> {
         let path = unfinished.generate_new_file_path(category);
         let raw_card = RawCard::new(unfinished);
         Self::save_at(raw_card, &path)
     }
-    pub fn new_unfinished(unfinished: UnfinishedCard, category: &Category) -> SavedCard<AnyType> {
+    pub fn new_unfinished(unfinished: UnfinishedCard, category: &Category) -> Card<AnyType> {
         let path = unfinished.generate_new_file_path(category);
         let raw_card = RawCard::new(unfinished);
         Self::save_at(raw_card, &path)
     }
 
-    pub fn load_all_cards() -> Vec<SavedCard<AnyType>> {
+    pub fn load_all_cards() -> Vec<Card<AnyType>> {
         let collections = Collection::load_all();
 
         let mut categories: Vec<Category> = collections
@@ -565,7 +398,7 @@ impl SavedCard<AnyType> {
         cache::add_dependent(dependency, self.id());
     }
 
-    pub fn edit_with_vim(&self) -> SavedCard<AnyType> {
+    pub fn edit_with_vim(&self) -> Card<AnyType> {
         let path = self.as_path();
         open_file_with_vim(path.as_path()).unwrap();
         Self::from_path(path.as_path())
@@ -586,29 +419,29 @@ impl SavedCard<AnyType> {
         }
     }
 
-    fn into_type(self, data: impl Into<AnyType>) -> SavedCard<AnyType> {
+    fn into_type(self, data: impl Into<AnyType>) -> Card<AnyType> {
         let path = self.as_path();
         let mut raw = RawCard::from_card(self);
         raw.data = RawType::from_any(data.into());
         raw.save(&path)
     }
 
-    pub fn into_normal(self, normal: NormalCard) -> SavedCard<AnyType> {
+    pub fn into_normal(self, normal: NormalCard) -> Card<AnyType> {
         self.into_type(normal)
     }
-    pub fn into_unfinished(self, unfinished: UnfinishedCard) -> SavedCard<AnyType> {
+    pub fn into_unfinished(self, unfinished: UnfinishedCard) -> Card<AnyType> {
         self.into_type(unfinished)
     }
-    pub fn into_attribute(self, attribute: AttributeCard) -> SavedCard<AnyType> {
+    pub fn into_attribute(self, attribute: AttributeCard) -> Card<AnyType> {
         self.into_type(attribute)
     }
 
-    pub fn into_concept(self, concept: ConceptCard) -> SavedCard<AnyType> {
+    pub fn into_concept(self, concept: ConceptCard) -> Card<AnyType> {
         self.into_type(concept)
     }
 }
 
-impl<T: CardTrait> SavedCard<T> {
+impl<T: CardTrait> Card<T> {
     fn history(&self) -> &Reviews {
         &self.history
     }
@@ -638,7 +471,7 @@ impl<T: CardTrait> SavedCard<T> {
 
     fn is_resolved(&self) -> bool {
         for id in self.all_dependencies() {
-            if let Some(card) = SavedCard::from_id(&id) {
+            if let Some(card) = Card::from_id(&id) {
                 if !card.is_finished() {
                     return false;
                 }
@@ -648,9 +481,9 @@ impl<T: CardTrait> SavedCard<T> {
         true
     }
 
-    fn all_dependencies(&self) -> Vec<CardId> {
+    pub fn all_dependencies(&self) -> Vec<CardId> {
         fn inner(id: CardId, deps: &mut Vec<CardId>) {
-            let Some(card) = SavedCard::from_id(&id) else {
+            let Some(card) = Card::from_id(&id) else {
                 return;
             };
 
@@ -751,7 +584,7 @@ impl<T: CardTrait> SavedCard<T> {
     }
 }
 
-impl Matcher for SavedCard<AnyType> {
+impl Matcher for Card<AnyType> {
     fn get_val(&self, key: &str) -> Option<samsvar::Value> {
         match key {
             "front" => json!(&self.data.display_front()),
@@ -776,7 +609,7 @@ impl Matcher for SavedCard<AnyType> {
                 let mut min_stability = usize::MAX;
                 let cards = self.all_dependencies();
                 for id in cards {
-                    let stab = (SavedCard::from_id(&id)
+                    let stab = (Card::from_id(&id)
                         .unwrap()
                         .recall_rate()
                         .unwrap_or_default()
@@ -790,7 +623,7 @@ impl Matcher for SavedCard<AnyType> {
                 let mut min_recall = usize::MAX;
                 let cards = self.all_dependencies();
                 for id in cards {
-                    let stab = (SavedCard::from_id(&id).unwrap().maturity() * 1000.) as usize;
+                    let stab = (Card::from_id(&id).unwrap().maturity() * 1000.) as usize;
                     min_recall = min_recall.min(stab);
                 }
 
@@ -801,7 +634,7 @@ impl Matcher for SavedCard<AnyType> {
                 let id = self.id();
                 let mut count: usize = 0;
 
-                for card in SavedCard::load_all_cards() {
+                for card in Card::load_all_cards() {
                     if card.dependency_ids().contains(&id) {
                         count += 1;
                     }
