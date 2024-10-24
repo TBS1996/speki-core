@@ -58,6 +58,10 @@ fn sync_cache() {
         );
     }
 
+    for (id, info) in &infos {
+        info.save(*id);
+    }
+
     for card in &cards {
         for dependency in card.dependency_ids() {
             if let Some(m) = infos.get_mut(&dependency) {
