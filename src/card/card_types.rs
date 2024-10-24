@@ -13,6 +13,12 @@ impl CardTrait for NormalCard {
 }
 
 #[derive(Debug, Clone)]
+pub struct EventCard {
+    pub name: String,
+    pub concept: ConceptId,
+}
+
+#[derive(Debug, Clone)]
 pub struct NormalCard {
     pub front: String,
     pub back: BackSide,
@@ -76,34 +82,6 @@ pub struct AttributeCard {
 #[derive(Debug, Clone)]
 pub struct UnfinishedCard {
     pub front: String,
-}
-
-pub trait Reviewable {
-    fn display_back(&self) -> String;
-}
-
-impl<T: Reviewable + CardTrait> Reviewable for Card<T> {
-    fn display_back(&self) -> String {
-        self.data.display_back()
-    }
-}
-
-impl Reviewable for AttributeCard {
-    fn display_back(&self) -> String {
-        self.back.to_string()
-    }
-}
-
-impl Reviewable for ConceptCard {
-    fn display_back(&self) -> String {
-        Concept::load(self.concept).unwrap().name
-    }
-}
-
-impl Reviewable for NormalCard {
-    fn display_back(&self) -> String {
-        self.back.to_string()
-    }
 }
 
 impl From<NormalCard> for AnyType {

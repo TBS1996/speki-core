@@ -210,12 +210,6 @@ impl<T: CardTrait> std::fmt::Display for Card<T> {
     }
 }
 
-impl<T: Reviewable + CardTrait> Card<T> {
-    pub fn show_backside(&self) -> String {
-        self.data.display_back()
-    }
-}
-
 impl Card<AttributeCard> {
     pub fn new(attr: AttributeCard, category: &Category) -> Card<AnyType> {
         let raw = RawCard::new_attribute(attr);
