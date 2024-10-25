@@ -4,17 +4,15 @@ use crate::concept::{Attribute, Concept};
 use crate::concept::{AttributeId, ConceptId};
 use crate::reviews::{Recall, Review, Reviews};
 use crate::{common::current_time, common::CardId};
-use fsload::FsLoad;
+use filecash::FsLoad;
 use rayon::prelude::*;
 use samsvar::json;
 use samsvar::Matcher;
-use sanitize_filename::sanitize;
 use serializing::{RawCard, RawType};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fmt::{Debug, Display};
-use std::fs::create_dir_all;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use uuid::Uuid;
@@ -54,22 +52,6 @@ impl CardLocation {
 pub trait CardTrait: Debug + Clone {
     fn get_dependencies(&self) -> BTreeSet<CardId>;
     fn display_front(&self) -> String;
-    fn generate_new_file_path(&self, category: &Category) -> PathBuf {
-        let mut file_name = sanitize(self.display_front().replace(" ", "_").replace("'", ""));
-        let dir = category.as_path();
-        create_dir_all(&dir).unwrap();
-
-        let mut path = dir.join(&file_name);
-        path.set_extension("toml");
-
-        while path.exists() {
-            file_name.push_str("_");
-            path = dir.join(&file_name);
-            path.set_extension("toml");
-        }
-
-        path
-    }
 }
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Hash, Debug, Clone)]
@@ -292,24 +274,31 @@ impl Card<AnyType> {
     }
 
     pub fn new_normal(unfinished: NormalCard, category: &Category) -> Card<AnyType> {
-        let path = unfinished.generate_new_file_path(category);
         let raw_card = RawCard::new(unfinished);
-        Self::save_at(raw_card, &path)
+        raw_card.save_at(&category.as_path());
+        let raw_card = RawCard::load(raw_card.id).unwrap();
+        Self::from_raw(raw_card)
     }
+
     pub fn new_attribute(unfinished: AttributeCard, category: &Category) -> Card<AnyType> {
-        let path = unfinished.generate_new_file_path(category);
         let raw_card = RawCard::new(unfinished);
-        Self::save_at(raw_card, &path)
+        raw_card.save_at(&category.as_path());
+        let raw_card = RawCard::load(raw_card.id).unwrap();
+        Self::from_raw(raw_card)
     }
+
     pub fn new_concept(unfinished: ConceptCard, category: &Category) -> Card<AnyType> {
-        let path = unfinished.generate_new_file_path(category);
         let raw_card = RawCard::new(unfinished);
-        Self::save_at(raw_card, &path)
+        raw_card.save_at(&category.as_path());
+        let raw_card = RawCard::load(raw_card.id).unwrap();
+        Self::from_raw(raw_card)
     }
+
     pub fn new_unfinished(unfinished: UnfinishedCard, category: &Category) -> Card<AnyType> {
-        let path = unfinished.generate_new_file_path(category);
         let raw_card = RawCard::new(unfinished);
-        Self::save_at(raw_card, &path)
+        raw_card.save_at(&category.as_path());
+        let raw_card = RawCard::load(raw_card.id).unwrap();
+        Self::from_raw(raw_card)
     }
 
     pub fn load_all_cards() -> Vec<Card<AnyType>> {

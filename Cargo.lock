@@ -326,6 +326,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8c02a5121d4ea3eb16a80748c74f5549a5665e4c21333c6098f283870fbdea6"
 
 [[package]]
+name = "filecash"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "rayon",
+ "sanitize-filename",
+ "serde",
+ "serde_json",
+ "toml",
+ "uuid",
+ "walkdir",
+]
+
+[[package]]
 name = "flate2"
 version = "1.0.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -348,19 +362,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13624c2627564efccf4934284bdd98cbaa14e79b0b5a141218e507b3a823456"
 dependencies = [
  "percent-encoding",
-]
-
-[[package]]
-name = "fsload"
-version = "0.1.0"
-dependencies = [
- "dirs",
- "rayon",
- "serde",
- "serde_json",
- "toml",
- "uuid",
- "walkdir",
 ]
 
 [[package]]
@@ -1610,7 +1611,7 @@ dependencies = [
  "cli-justify",
  "dirs",
  "eyre",
- "fsload",
+ "filecash",
  "futures",
  "git2",
  "gkquad",
