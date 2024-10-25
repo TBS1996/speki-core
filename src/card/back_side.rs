@@ -57,10 +57,10 @@ impl Display for BackSide {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let text = match self {
             BackSide::Text(s) => s.to_owned(),
-            BackSide::Card(id) => Card::from_id(id).unwrap().print(),
+            BackSide::Card(id) => Card::from_id(*id).unwrap().print(),
             BackSide::List(list) => list
                 .iter()
-                .map(|id| Card::from_id(id).unwrap().print())
+                .map(|id| Card::from_id(*id).unwrap().print())
                 .collect::<Vec<String>>()
                 .join(", "),
         };

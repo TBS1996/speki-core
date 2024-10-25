@@ -1,4 +1,3 @@
-use crate::cache;
 use crate::categories::Category;
 use crate::collections::Collection;
 use crate::common::{open_file_with_vim, system_time_as_unix_time};
@@ -6,6 +5,7 @@ use crate::concept::{Attribute, Concept};
 use crate::concept::{AttributeId, ConceptId};
 use crate::reviews::{Recall, Review, Reviews};
 use crate::{common::current_time, common::CardId};
+use fsload::FsLoad;
 use rayon::prelude::*;
 use samsvar::json;
 use samsvar::Matcher;
@@ -213,13 +213,24 @@ impl<T: CardTrait> std::fmt::Display for Card<T> {
 impl Card<AttributeCard> {
     pub fn new(attr: AttributeCard, category: &Category) -> Card<AnyType> {
         let raw = RawCard::new_attribute(attr);
-        raw.save(&category.as_path())
+        let id = raw.id;
+        raw.save_at(&category.as_path());
+        Card::from_raw(RawCard::load(id).unwrap())
     }
 }
 
 impl Card<AnyType> {
     pub fn card_type(&self) -> &AnyType {
         &self.data
+    }
+
+    pub fn dependents(id: CardId) -> BTreeSet<CardId> {
+        RawCard::load(id.into_inner())
+            .unwrap()
+            .dependents()
+            .into_iter()
+            .map(|id| CardId(id))
+            .collect()
     }
 
     pub fn set_ref(mut self, reff: CardId) -> Card<AnyType> {
@@ -230,9 +241,8 @@ impl Card<AnyType> {
     }
 
     // potentially expensive function!
-    pub fn from_id(id: &CardId) -> Option<Card<AnyType>> {
-        let path = cache::path_from_id(*id)?;
-        Self::from_path(&path).into()
+    pub fn from_id(id: CardId) -> Option<Card<AnyType>> {
+        Some(Self::from_raw(RawCard::load(id.into_inner())?))
     }
 
     pub fn is_finished(&self) -> bool {
@@ -245,34 +255,16 @@ impl Card<AnyType> {
 
     // Call this function every time SavedCard is mutated.
     pub fn persist(&mut self) {
-        if self.is_outdated() {
-            // When you persist, the last_modified in the card should match the ones from the file.
-            // This shouldn't be possible, as this function mutates itself to get a fresh copy, so
-            // i'll panic here to alert me of the logic bug.
-            let _x = format!("{:?}", self);
-            // panic!("{}", x);
-        }
-
-        let path = self.as_path();
-        if !path.exists() {
-            let msg = format!("following path doesn't really exist: {}", path.display());
-            panic!("{msg}");
-        }
-
         self.history.save(self.id());
-        let raw_card = RawCard::from_card(self.clone());
-        *self = raw_card.save(&path)
+        RawCard::from_card(self.clone()).save();
+        *self = Self::from_raw(RawCard::load(self.id().into_inner()).unwrap());
     }
 
-    pub fn from_path(path: &Path) -> Card<AnyType> {
-        let content = read_to_string(path).expect("Could not read the TOML file");
-        let Ok(raw_card) = toml::from_str::<RawCard>(&content) else {
-            dbg!("faild to read card from path: ", path);
-            panic!();
-        };
+    pub fn from_raw(raw_card: RawCard) -> Card<AnyType> {
+        let path = raw_card.path().unwrap();
 
         let last_modified = {
-            let system_time = std::fs::metadata(path).unwrap().modified().unwrap();
+            let system_time = std::fs::metadata(&path).unwrap().modified().unwrap();
             system_time_as_unix_time(system_time)
         };
 
@@ -288,28 +280,17 @@ impl Card<AnyType> {
                 .collect(),
             tags: raw_card.tags,
             history: Reviews::load(id).unwrap_or_default(),
-            location: CardLocation::new(path),
+            location: CardLocation::new(&path),
             last_modified,
             suspended: IsSuspended::from(raw_card.suspended),
         }
     }
 
     pub fn save_at(raw_card: RawCard, path: &Path) -> Card<AnyType> {
-        let s: String = toml::to_string_pretty(&raw_card).unwrap();
-        let mut file = fs::File::create_new(&path).unwrap();
-        file.write_all(&mut s.as_bytes()).unwrap();
-        Self::from_path(&path)
-    }
-
-    fn get_cards_from_categories(cats: Vec<Category>) -> Vec<Card<AnyType>> {
-        cats.into_par_iter()
-            .flat_map(|cat| {
-                cat.get_containing_card_paths()
-                    .into_par_iter()
-                    .map(|path| Self::from_path(&path))
-                    .collect::<Vec<Card<AnyType>>>()
-            })
-            .collect()
+        let id = raw_card.id;
+        raw_card.save_at(path);
+        let raw_card = RawCard::load(id).unwrap();
+        Self::from_raw(raw_card)
     }
 
     pub fn new_normal(unfinished: NormalCard, category: &Category) -> Card<AnyType> {
@@ -334,17 +315,10 @@ impl Card<AnyType> {
     }
 
     pub fn load_all_cards() -> Vec<Card<AnyType>> {
-        let collections = Collection::load_all();
-
-        let mut categories: Vec<Category> = collections
-            .into_par_iter()
-            .flat_map(|col| col.load_categories())
-            .collect();
-
-        let extra_categories = Category::load_all(None);
-        categories.extend(extra_categories);
-
-        Self::get_cards_from_categories(categories)
+        RawCard::load_all()
+            .into_iter()
+            .map(Self::from_raw)
+            .collect()
     }
 
     pub fn load_pending(filter: Option<String>) -> Vec<CardId> {
@@ -389,13 +363,12 @@ impl Card<AnyType> {
         }
         self.dependencies.insert(dependency);
         self.persist();
-        cache::add_dependent(dependency, self.id());
     }
 
     pub fn edit_with_vim(&self) -> Card<AnyType> {
         let path = self.as_path();
         open_file_with_vim(path.as_path()).unwrap();
-        Self::from_path(path.as_path())
+        Self::from_raw(RawCard::load(self.id().into_inner()).unwrap())
     }
 
     pub fn new_review(&mut self, grade: Recall, time: Duration) {
@@ -414,10 +387,11 @@ impl Card<AnyType> {
     }
 
     fn into_type(self, data: impl Into<AnyType>) -> Card<AnyType> {
-        let path = self.as_path();
+        let id = self.id();
         let mut raw = RawCard::from_card(self);
         raw.data = RawType::from_any(data.into());
-        raw.save(&path)
+        raw.save();
+        Card::from_id(id).unwrap()
     }
 
     pub fn into_normal(self, normal: NormalCard) -> Card<AnyType> {
@@ -465,7 +439,7 @@ impl<T: CardTrait> Card<T> {
 
     fn is_resolved(&self) -> bool {
         for id in self.all_dependencies() {
-            if let Some(card) = Card::from_id(&id) {
+            if let Some(card) = Card::from_id(id) {
                 if !card.is_finished() {
                     return false;
                 }
@@ -477,7 +451,7 @@ impl<T: CardTrait> Card<T> {
 
     pub fn all_dependencies(&self) -> Vec<CardId> {
         fn inner(id: CardId, deps: &mut Vec<CardId>) {
-            let Some(card) = Card::from_id(&id) else {
+            let Some(card) = Card::from_id(id) else {
                 return;
             };
 
@@ -603,10 +577,7 @@ impl Matcher for Card<AnyType> {
                 let mut min_stability = usize::MAX;
                 let cards = self.all_dependencies();
                 for id in cards {
-                    let stab = (Card::from_id(&id)
-                        .unwrap()
-                        .recall_rate()
-                        .unwrap_or_default()
+                    let stab = (Card::from_id(id).unwrap().recall_rate().unwrap_or_default()
                         * 1000.) as usize;
                     min_stability = min_stability.min(stab);
                 }
@@ -617,7 +588,7 @@ impl Matcher for Card<AnyType> {
                 let mut min_recall = usize::MAX;
                 let cards = self.all_dependencies();
                 for id in cards {
-                    let stab = (Card::from_id(&id).unwrap().maturity() * 1000.) as usize;
+                    let stab = (Card::from_id(id).unwrap().maturity() * 1000.) as usize;
                     min_recall = min_recall.min(stab);
                 }
 

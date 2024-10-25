@@ -1,5 +1,7 @@
 use crate::common::CardId;
 use crate::concept::{AttributeId, ConceptId};
+use dirs::home_dir;
+use fsload::FsLoad;
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -10,14 +12,15 @@ use toml::Value;
 use uuid::Uuid;
 
 use super::{
-    AnyType, AttributeCard, BackSide, Card, ConceptCard, IsSuspended, NormalCard, UnfinishedCard,
+    AnyType, AttributeCard, BackSide, Card, CardTrait, ConceptCard, IsSuspended, NormalCard,
+    UnfinishedCard,
 };
 
 fn is_false(flag: &bool) -> bool {
     !flag
 }
 
-#[derive(Serialize, Deserialize, Default, Debug)]
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
 pub struct RawType {
     pub front: Option<String>,
     pub back: Option<BackSide>,
@@ -89,6 +92,41 @@ impl RawType {
     }
 }
 
+impl FsLoad for RawCard {
+    fn id(&self) -> Uuid {
+        self.id
+    }
+
+    fn dir_path() -> std::path::PathBuf {
+        let p = home_dir()
+            .unwrap()
+            .join(".local")
+            .join("share")
+            .join("speki")
+            .join("cards");
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    fn file_name(&self) -> String {
+        self.data.clone().into_any().display_front()
+    }
+
+    fn dependencies(&self) -> BTreeSet<Uuid> {
+        let mut deps = self.dependencies.clone();
+        let other_deps: BTreeSet<Uuid> = self
+            .data
+            .clone()
+            .into_any()
+            .get_dependencies()
+            .into_iter()
+            .map(|id| id.into_inner())
+            .collect();
+        deps.extend(other_deps.iter());
+        deps
+    }
+}
+
 #[derive(Serialize, Deserialize, Default, Debug)]
 pub struct RawCard {
     pub id: Uuid,
@@ -103,12 +141,6 @@ pub struct RawCard {
 }
 
 impl RawCard {
-    pub fn save(self, path: &Path) -> Card<AnyType> {
-        let toml = toml::to_string(&self).unwrap();
-        std::fs::write(&path, toml).unwrap();
-        Card::from_path(path)
-    }
-
     pub fn new(card: impl Into<AnyType>) -> Self {
         let card: AnyType = card.into();
         match card {

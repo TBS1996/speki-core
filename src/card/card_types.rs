@@ -44,7 +44,7 @@ impl CardTrait for AttributeCard {
     fn get_dependencies(&self) -> BTreeSet<CardId> {
         let mut dependencies = Attribute::load(self.attribute).unwrap().dependencies;
         dependencies.extend(
-            Card::from_id(&self.concept_card)
+            Card::from_id(self.concept_card)
                 .unwrap()
                 .dependencies
                 .iter(),

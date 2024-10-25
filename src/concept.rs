@@ -113,7 +113,7 @@ pub struct Attribute {
 
 impl Attribute {
     pub fn name(&self, card: CardId) -> String {
-        let card_text = Card::from_id(&card).unwrap().print();
+        let card_text = Card::from_id(card).unwrap().print();
         if self.pattern.contains("{}") {
             self.pattern.replace("{}", &card_text)
         } else {

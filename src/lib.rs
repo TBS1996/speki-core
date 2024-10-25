@@ -1,4 +1,4 @@
-pub mod cache;
+//pub mod cache;
 pub mod card;
 pub mod categories;
 pub mod collections;
@@ -10,7 +10,10 @@ pub mod paths;
 pub mod recall_rate;
 pub mod reviews;
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+};
 
 pub use card::Card;
 use card::{AnyType, AttributeCard, CardTrait, ConceptCard, NormalCard, UnfinishedCard};
@@ -34,8 +37,8 @@ pub fn load_and_persist() {
     }
 }
 
-pub fn get_cached_dependents(id: CardId) -> Vec<CardId> {
-    cache::dependents_from_id(id)
+pub fn get_cached_dependents(id: CardId) -> BTreeSet<CardId> {
+    Card::<AnyType>::dependents(id)
 }
 
 pub fn cards_filtered(filter: String) -> Vec<CardId> {
@@ -58,14 +61,14 @@ pub fn add_unfinished(front: String, category: &Category) -> CardId {
 }
 
 pub fn review(card_id: CardId, grade: Recall) {
-    let mut card = Card::from_id(&card_id).unwrap();
+    let mut card = Card::from_id(card_id).unwrap();
     card.new_review(grade, Default::default());
 }
 
 use eyre::Result;
 
 pub fn set_concept(card_id: CardId, concept: ConceptId) -> Result<()> {
-    let card = Card::from_id(&card_id).unwrap();
+    let card = Card::from_id(card_id).unwrap();
     assert!(Concept::load(concept).is_some(), "concept not found??");
 
     let concept = ConceptCard {
@@ -81,17 +84,17 @@ pub fn set_dependency(card_id: CardId, dependency: CardId) {
         return;
     }
 
-    let mut card = Card::from_id(&card_id).unwrap();
+    let mut card = Card::from_id(card_id).unwrap();
     card.set_dependency(dependency);
-    cache::add_dependent(dependency, card_id);
+    card.persist();
 }
 
 pub fn card_from_id(card_id: CardId) -> Card<AnyType> {
-    Card::from_id(&card_id).unwrap()
+    Card::from_id(card_id).unwrap()
 }
 
 pub fn delete(card_id: CardId) {
-    let path = Card::from_id(&card_id).unwrap().as_path();
+    let path = Card::from_id(card_id).unwrap().as_path();
     std::fs::remove_file(path).unwrap();
 }
 
@@ -101,7 +104,7 @@ pub fn as_graph() -> String {
 }
 
 pub fn edit(card_id: CardId) {
-    Card::from_id(&card_id).unwrap().edit_with_vim();
+    Card::from_id(card_id).unwrap().edit_with_vim();
 }
 
 pub fn get_containing_file_paths(directory: &Path, ext: Option<&str>) -> Vec<PathBuf> {
@@ -224,7 +227,7 @@ fn verify_attributes() {
                 println!("error loading attribute for: {:?}", &card);
             }
 
-            match Card::from_id(concept_card) {
+            match Card::from_id(*concept_card) {
                 Some(concept_card) => {
                     if !card.card_type().is_concept() {
                         println!(
