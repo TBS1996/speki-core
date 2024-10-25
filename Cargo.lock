@@ -355,10 +355,12 @@ name = "fsload"
 version = "0.1.0"
 dependencies = [
  "dirs",
+ "rayon",
  "serde",
  "serde_json",
  "toml",
  "uuid",
+ "walkdir",
 ]
 
 [[package]]

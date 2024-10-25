@@ -1,5 +1,4 @@
 use crate::categories::Category;
-use crate::collections::Collection;
 use crate::common::{open_file_with_vim, system_time_as_unix_time};
 use crate::concept::{Attribute, Concept};
 use crate::concept::{AttributeId, ConceptId};
@@ -15,8 +14,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fmt::{Debug, Display};
-use std::fs::{self, create_dir_all, read_to_string};
-use std::io::Write;
+use std::fs::create_dir_all;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use uuid::Uuid;
@@ -316,7 +314,7 @@ impl Card<AnyType> {
 
     pub fn load_all_cards() -> Vec<Card<AnyType>> {
         RawCard::load_all()
-            .into_iter()
+            .into_par_iter()
             .map(Self::from_raw)
             .collect()
     }

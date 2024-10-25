@@ -1,12 +1,12 @@
 use crate::common::CardId;
 use crate::concept::{AttributeId, ConceptId};
-use dirs::home_dir;
+use crate::paths;
 use fsload::FsLoad;
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
-use std::path::Path;
+use std::path::PathBuf;
 use std::time::Duration;
 use toml::Value;
 use uuid::Uuid;
@@ -97,15 +97,14 @@ impl FsLoad for RawCard {
         self.id
     }
 
-    fn dir_path() -> std::path::PathBuf {
-        let p = home_dir()
-            .unwrap()
-            .join(".local")
-            .join("share")
-            .join("speki")
-            .join("cards");
-        std::fs::create_dir_all(&p).unwrap();
-        p
+    fn type_name() -> String {
+        String::from("speki")
+    }
+
+    fn save_paths() -> Vec<PathBuf> {
+        let p1 = paths::get_cards_path();
+        let p2 = paths::get_collections_path();
+        vec![p1, p2]
     }
 
     fn file_name(&self) -> String {
@@ -123,6 +122,7 @@ impl FsLoad for RawCard {
             .map(|id| id.into_inner())
             .collect();
         deps.extend(other_deps.iter());
+
         deps
     }
 }

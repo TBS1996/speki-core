@@ -43,13 +43,7 @@ pub struct ConceptCard {
 impl CardTrait for AttributeCard {
     fn get_dependencies(&self) -> BTreeSet<CardId> {
         let mut dependencies = Attribute::load(self.attribute).unwrap().dependencies;
-        dependencies.extend(
-            Card::from_id(self.concept_card)
-                .unwrap()
-                .dependencies
-                .iter(),
-        );
-
+        dependencies.insert(self.concept_card);
         dependencies.extend(self.back.dependencies().iter());
 
         dependencies
