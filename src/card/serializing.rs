@@ -1,5 +1,5 @@
 use crate::common::CardId;
-use crate::concept::{AttributeId, ConceptId};
+use crate::concept::AttributeId;
 use crate::paths;
 use filecash::FsLoad;
 use serde::de::{self, Deserializer};
@@ -12,7 +12,7 @@ use toml::Value;
 use uuid::Uuid;
 
 use super::{
-    AnyType, AttributeCard, BackSide, Card, CardTrait, ConceptCard, IsSuspended, NormalCard,
+    AnyType, AttributeCard, BackSide, Card, CardTrait, InstanceCard, IsSuspended, NormalCard,
     UnfinishedCard,
 };
 
@@ -47,9 +47,9 @@ impl RawType {
             }
             .into(),
             (Some(front), Some(back), None, None, None, None) => NormalCard { front, back }.into(),
-            (None, None, Some(name), Some(concept), None, None) => ConceptCard {
+            (None, None, Some(name), Some(concept), None, None) => InstanceCard {
                 name,
-                concept: ConceptId::verify(&concept).unwrap(),
+                concept: CardId(concept),
             }
             .into(),
             (Some(front), None, None, None, None, None) => UnfinishedCard { front }.into(),
@@ -63,7 +63,7 @@ impl RawType {
         let mut raw = Self::default();
         match ty {
             AnyType::Concept(ty) => {
-                let ConceptCard { concept, name } = ty;
+                let InstanceCard { concept, name } = ty;
                 raw.concept = Some(concept.into_inner());
                 raw.name = Some(name);
             }
@@ -166,7 +166,7 @@ impl RawCard {
             ..Default::default()
         }
     }
-    pub fn new_concept(concept: ConceptCard) -> Self {
+    pub fn new_concept(concept: InstanceCard) -> Self {
         Self {
             id: Uuid::new_v4(),
             data: RawType::from_any(concept.into()),

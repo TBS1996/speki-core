@@ -13,20 +13,14 @@ impl CardTrait for NormalCard {
 }
 
 #[derive(Debug, Clone)]
-pub struct EventCard {
-    pub name: String,
-    pub concept: ConceptId,
-}
-
-#[derive(Debug, Clone)]
 pub struct NormalCard {
     pub front: String,
     pub back: BackSide,
 }
 
-impl CardTrait for ConceptCard {
+impl CardTrait for InstanceCard {
     fn get_dependencies(&self) -> BTreeSet<CardId> {
-        Concept::load(self.concept).unwrap().dependencies
+        Card::from_id(self.concept).unwrap().dependency_ids()
     }
 
     fn display_front(&self) -> String {
@@ -35,9 +29,9 @@ impl CardTrait for ConceptCard {
 }
 
 #[derive(Debug, Clone)]
-pub struct ConceptCard {
+pub struct InstanceCard {
     pub name: String,
-    pub concept: ConceptId,
+    pub concept: CardId,
 }
 
 impl CardTrait for AttributeCard {
@@ -93,8 +87,8 @@ impl From<AttributeCard> for AnyType {
         Self::Attribute(value)
     }
 }
-impl From<ConceptCard> for AnyType {
-    fn from(value: ConceptCard) -> Self {
+impl From<InstanceCard> for AnyType {
+    fn from(value: InstanceCard) -> Self {
         Self::Concept(value)
     }
 }

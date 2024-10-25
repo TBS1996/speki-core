@@ -16,10 +16,10 @@ use std::{
 };
 
 pub use card::Card;
-use card::{AnyType, AttributeCard, CardTrait, ConceptCard, NormalCard, UnfinishedCard};
+use card::{AnyType, AttributeCard, CardTrait, InstanceCard, NormalCard, UnfinishedCard};
 use categories::Category;
 use common::CardId;
-use concept::{Attribute, Concept, ConceptId};
+use concept::Attribute;
 use reviews::Recall;
 use samsvar::Matcher;
 use sanitize_filename::sanitize;
@@ -67,11 +67,10 @@ pub fn review(card_id: CardId, grade: Recall) {
 
 use eyre::Result;
 
-pub fn set_concept(card_id: CardId, concept: ConceptId) -> Result<()> {
+pub fn set_concept(card_id: CardId, concept: CardId) -> Result<()> {
     let card = Card::from_id(card_id).unwrap();
-    assert!(Concept::load(concept).is_some(), "concept not found??");
 
-    let concept = ConceptCard {
+    let concept = InstanceCard {
         name: card.card_type().display_front(),
         concept,
     };

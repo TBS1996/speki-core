@@ -1,7 +1,7 @@
 use crate::categories::Category;
 use crate::common::{open_file_with_vim, system_time_as_unix_time};
-use crate::concept::{Attribute, Concept};
-use crate::concept::{AttributeId, ConceptId};
+use crate::concept::Attribute;
+use crate::concept::AttributeId;
 use crate::reviews::{Recall, Review, Reviews};
 use crate::{common::current_time, common::CardId};
 use filecash::FsLoad;
@@ -98,7 +98,7 @@ impl IsSuspended {
 
 #[derive(Debug, Clone)]
 pub enum AnyType {
-    Concept(ConceptCard),
+    Concept(InstanceCard),
     Normal(NormalCard),
     Unfinished(UnfinishedCard),
     Attribute(AttributeCard),
@@ -287,7 +287,7 @@ impl Card<AnyType> {
         Self::from_raw(raw_card)
     }
 
-    pub fn new_concept(unfinished: ConceptCard, category: &Category) -> Card<AnyType> {
+    pub fn new_concept(unfinished: InstanceCard, category: &Category) -> Card<AnyType> {
         let raw_card = RawCard::new(unfinished);
         raw_card.save_at(&category.as_path());
         let raw_card = RawCard::load(raw_card.id).unwrap();
@@ -391,7 +391,7 @@ impl Card<AnyType> {
         self.into_type(attribute)
     }
 
-    pub fn into_concept(self, concept: ConceptCard) -> Card<AnyType> {
+    pub fn into_concept(self, concept: InstanceCard) -> Card<AnyType> {
         self.into_type(concept)
     }
 }
