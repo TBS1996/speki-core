@@ -1622,6 +1622,7 @@ dependencies = [
  "sanitize-filename",
  "serde",
  "serde_json",
+ "timestamped",
  "tokio",
  "toml",
  "ureq",
@@ -1727,6 +1728,10 @@ dependencies = [
  "num-conv",
  "time-core",
 ]
+
+[[package]]
+name = "timestamped"
+version = "0.1.0"
 
 [[package]]
 name = "tinyvec"

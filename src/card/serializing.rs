@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 use std::path::PathBuf;
 use std::time::Duration;
+use timestamped::TimeStamp;
 use toml::Value;
 use uuid::Uuid;
 
@@ -32,6 +33,8 @@ pub struct RawType {
     #[serde(default, skip_serializing_if = "is_false")]
     pub is_event: bool,
     pub event: Option<String>,
+    pub start_time: Option<String>,
+    pub end_time: Option<String>,
 }
 
 impl RawType {
@@ -41,7 +44,24 @@ impl RawType {
         }
 
         if let Some(event) = self.event {
-            return EventCard { front: event }.into();
+            let start_time = self
+                .start_time
+                .clone()
+                .map(TimeStamp::from_string)
+                .flatten()
+                .unwrap_or_default();
+            let end_time = self
+                .start_time
+                .clone()
+                .map(TimeStamp::from_string)
+                .flatten();
+
+            return EventCard {
+                front: event,
+                start_time,
+                end_time,
+            }
+            .into();
         }
 
         match (
@@ -115,8 +135,14 @@ impl RawType {
             AnyType::Statement(StatementCard { front }) => {
                 raw.statement = Some(front);
             }
-            AnyType::Event(EventCard { front }) => {
+            AnyType::Event(EventCard {
+                front,
+                start_time,
+                end_time,
+            }) => {
                 raw.event = Some(front);
+                raw.start_time = Some(start_time.serialize());
+                raw.end_time = end_time.map(|t| t.serialize());
             }
         };
 

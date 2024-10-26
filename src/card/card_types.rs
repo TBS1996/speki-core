@@ -1,3 +1,5 @@
+use timestamped::TimeStamp;
+
 use super::*;
 
 impl CardTrait for NormalCard {
@@ -181,6 +183,8 @@ impl CardTrait for StatementCard {
 #[derive(Debug, Clone)]
 pub struct EventCard {
     pub front: String,
+    pub start_time: TimeStamp,
+    pub end_time: Option<TimeStamp>,
 }
 
 impl From<EventCard> for AnyType {

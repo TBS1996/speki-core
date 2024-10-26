@@ -1,8 +1,36 @@
 use samsvar::Value;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
+use timestamped::TimeStamp;
 
 use super::*;
-use crate::TimeStamp;
+
+pub enum CardCharacteristic {
+    Any,
+    Class,
+    Instance,
+    SubclassOf(CardId),
+}
+
+impl CardCharacteristic {
+    pub fn card_matches(&self, card: CardId) -> bool {
+        let card = Card::from_id(card).unwrap();
+
+        match self {
+            CardCharacteristic::Any => true,
+            CardCharacteristic::Class => card.is_class(),
+            CardCharacteristic::Instance => card.is_instance(),
+            CardCharacteristic::SubclassOf(card_id) => {
+                card.load_belonging_classes().contains(&card_id)
+            }
+        }
+    }
+}
+
+pub enum BackConstraint {
+    Time,
+    Card(CardCharacteristic),
+    List(Vec<CardCharacteristic>),
+}
 
 #[derive(Ord, PartialOrd, Eq, Hash, PartialEq, Debug, Clone)]
 pub enum BackSide {
@@ -20,17 +48,38 @@ impl Default for BackSide {
 
 impl From<String> for BackSide {
     fn from(s: String) -> Self {
-        if let Ok(id) = s.parse::<Uuid>() {
-            Self::Card(CardId(id))
-        } else if let Ok(list) = serde_json::from_str::<Vec<Uuid>>(&s) {
-            Self::List(list.into_iter().map(|id| CardId(id)).collect())
+        if let Ok(uuid) = Uuid::parse_str(&s) {
+            BackSide::Card(CardId(uuid))
+        } else if let Some(timestamp) = TimeStamp::from_string(s.clone()) {
+            BackSide::Time(timestamp)
         } else {
-            Self::Text(s)
+            BackSide::Text(s)
         }
     }
 }
 
 impl BackSide {
+    pub fn matches_constraint(&self, constraint: BackConstraint) -> bool {
+        match (self, constraint) {
+            (BackSide::Card(card_id), BackConstraint::Card(card_characteristic)) => {
+                card_characteristic.card_matches(*card_id)
+            }
+            (BackSide::List(cardlist), BackConstraint::List(vec)) => {
+                if cardlist.len() != vec.len() {
+                    return false;
+                }
+                cardlist
+                    .iter()
+                    .zip(vec.iter())
+                    .all(|(card, charac)| charac.card_matches(*card))
+            }
+
+            (BackSide::Time(_), BackConstraint::Time) => true,
+
+            (_, _) => false,
+        }
+    }
+
     pub fn serialize(self) -> String {
         match self {
             BackSide::Text(s) => s,
@@ -97,15 +146,7 @@ impl<'de> Deserialize<'de> for BackSide {
                 }
                 Ok(BackSide::List(ids))
             }
-            Value::String(s) => {
-                if let Ok(uuid) = Uuid::parse_str(&s) {
-                    Ok(BackSide::Card(CardId(uuid)))
-                } else if let Some(timestamp) = TimeStamp::from_string(s.clone()) {
-                    Ok(BackSide::Time(timestamp))
-                } else {
-                    Ok(BackSide::Text(s))
-                }
-            }
+            Value::String(s) => Ok(s.into()),
             _ => Err(serde::de::Error::custom("Expected a string or an array")),
         }
     }
