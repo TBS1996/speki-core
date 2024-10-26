@@ -2,12 +2,14 @@ use samsvar::Value;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
 
 use super::*;
+use crate::TimeStamp;
 
 #[derive(Ord, PartialOrd, Eq, Hash, PartialEq, Debug, Clone)]
 pub enum BackSide {
     Text(String),
     Card(CardId),
     List(Vec<CardId>),
+    Time(TimeStamp),
 }
 
 impl Default for BackSide {
@@ -34,6 +36,7 @@ impl BackSide {
             BackSide::Text(s) => s,
             BackSide::Card(id) => id.to_string(),
             BackSide::List(list) => serde_json::to_string(&list).unwrap(),
+            BackSide::Time(time_stamp) => time_stamp.serialize(),
         }
     }
 
@@ -47,6 +50,7 @@ impl BackSide {
             BackSide::List(vec) => {
                 set.extend(vec.iter());
             }
+            BackSide::Time(_) => {}
         }
 
         set
@@ -56,6 +60,7 @@ impl BackSide {
 impl Display for BackSide {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let text = match self {
+            BackSide::Time(time) => format!("🕒 {}", time),
             BackSide::Text(s) => s.to_owned(),
             BackSide::Card(id) => Card::from_id(*id).unwrap().print(),
             BackSide::List(list) => list
@@ -81,7 +86,6 @@ impl<'de> Deserialize<'de> for BackSide {
                 let mut ids = Vec::new();
                 for item in arr {
                     if let Value::String(ref s) = item {
-                        // Try parsing each string as a UUID
                         if let Ok(uuid) = Uuid::parse_str(s) {
                             ids.push(CardId(uuid));
                         } else {
@@ -96,6 +100,8 @@ impl<'de> Deserialize<'de> for BackSide {
             Value::String(s) => {
                 if let Ok(uuid) = Uuid::parse_str(&s) {
                     Ok(BackSide::Card(CardId(uuid)))
+                } else if let Some(timestamp) = TimeStamp::from_string(s.clone()) {
+                    Ok(BackSide::Time(timestamp))
                 } else {
                     Ok(BackSide::Text(s))
                 }
@@ -111,6 +117,7 @@ impl Serialize for BackSide {
         S: serde::Serializer,
     {
         match *self {
+            BackSide::Time(ref t) => serializer.serialize_str(&t.serialize()),
             BackSide::Text(ref s) => serializer.serialize_str(s),
             BackSide::Card(ref id) => serializer.serialize_str(&id.0.to_string()),
             BackSide::List(ref ids) => {

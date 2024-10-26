@@ -200,24 +200,6 @@ impl CardTrait for EventCard {
 }
 
 /*
-
-
 German invasion of norway
-
 subclass
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 */
