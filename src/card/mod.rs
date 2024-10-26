@@ -223,6 +223,32 @@ impl Card<AnyType> {
         &self.data
     }
 
+    /// Returns the class this card belongs to (if any)
+    pub fn class(&self) -> Option<CardId> {
+        match &self.data {
+            AnyType::Instance(instance) => Some(instance.class),
+            AnyType::Class(class) => class.parent_class,
+            AnyType::Normal(_) => None,
+            AnyType::Unfinished(_) => None,
+            AnyType::Attribute(_) => None,
+            AnyType::Statement(_) => None,
+        }
+    }
+
+    /// Loads all the ancestor ancestor classes
+    /// for example, king, human male, human
+    pub fn load_belonging_classes(&self) -> Vec<CardId> {
+        let mut classes = vec![];
+        let mut parent_class = self.class();
+
+        while let Some(class) = parent_class {
+            classes.push(class);
+            parent_class = Card::from_id(class).unwrap().class();
+        }
+
+        classes
+    }
+
     pub fn dependents(id: CardId) -> BTreeSet<CardId> {
         RawCard::load(id.into_inner())
             .unwrap()
@@ -437,8 +463,8 @@ impl Card<AnyType> {
         self.into_type(attribute)
     }
 
-    pub fn into_instance(self, concept: InstanceCard) -> Card<AnyType> {
-        self.into_type(concept)
+    pub fn into_instance(self, instance: InstanceCard) -> Card<AnyType> {
+        self.into_type(instance)
     }
 }
 

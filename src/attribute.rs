@@ -47,7 +47,12 @@ impl AttributeId {
 pub struct Attribute {
     pub pattern: String,
     pub id: AttributeId,
-    pub concept: CardId,
+    /// The attribute is valid for this class
+    #[serde(alias = "concept")]
+    pub class: CardId,
+    // the answer to the attribute should be part of this
+    // for example, if the attribute is 'where was {} born?' the type should be of concept place
+    pub back_type: Option<CardId>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub dependencies: BTreeSet<CardId>,
 }
@@ -84,9 +89,22 @@ impl Attribute {
         Ok(())
     }
 
-    pub fn load_from_concept(id: CardId) -> Vec<Self> {
+    pub fn load_from_class_only(class: CardId) -> Vec<Self> {
         let mut attrs = Self::load_all();
-        attrs.retain(|attr| attr.concept == id);
+        attrs.retain(|attr| attr.class == class);
+        attrs
+    }
+
+    pub fn load_from_class(class: CardId, instance: CardId) -> Vec<Self> {
+        let mut attrs = Self::load_all();
+        let classes = Card::from_id(instance).unwrap().load_belonging_classes();
+        attrs.retain(|attr| {
+            attr.class == class
+                && attr
+                    .back_type
+                    .map(|ty| classes.contains(&ty))
+                    .unwrap_or(true)
+        });
         attrs
     }
 
@@ -96,12 +114,13 @@ impl Attribute {
             .find(|concept| concept.id == id)
     }
 
-    pub fn create(pattern: String, concept: CardId) -> AttributeId {
+    pub fn create(pattern: String, concept: CardId, back_type: Option<CardId>) -> AttributeId {
         let attr = Self {
             pattern,
             id: AttributeId(Uuid::new_v4()),
-            concept,
+            class: concept,
             dependencies: Default::default(),
+            back_type,
         };
 
         attr.save().unwrap();
