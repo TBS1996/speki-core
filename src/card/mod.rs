@@ -1,7 +1,7 @@
+use crate::attribute::Attribute;
+use crate::attribute::AttributeId;
 use crate::categories::Category;
 use crate::common::{open_file_with_vim, system_time_as_unix_time};
-use crate::concept::Attribute;
-use crate::concept::AttributeId;
 use crate::reviews::{Recall, Review, Reviews};
 use crate::{common::current_time, common::CardId};
 use filecash::FsLoad;
@@ -98,24 +98,29 @@ impl IsSuspended {
 
 #[derive(Debug, Clone)]
 pub enum AnyType {
-    Concept(InstanceCard),
+    Instance(InstanceCard),
     Normal(NormalCard),
     Unfinished(UnfinishedCard),
     Attribute(AttributeCard),
+    Class(ClassCard),
 }
 
 impl AnyType {
     pub fn type_name(&self) -> &str {
         match self {
-            AnyType::Concept(_) => "concept",
+            AnyType::Instance(_) => "instance",
             AnyType::Normal(_) => "normal",
             AnyType::Unfinished(_) => "unfinished",
             AnyType::Attribute(_) => "attribute",
+            AnyType::Class(_) => "class",
         }
     }
 
-    pub fn is_concept(&self) -> bool {
-        matches!(self, Self::Concept(_))
+    pub fn is_class(&self) -> bool {
+        matches!(self, Self::Class(_))
+    }
+    pub fn is_instance(&self) -> bool {
+        matches!(self, Self::Instance(_))
     }
     pub fn is_finished(&self) -> bool {
         !matches!(self, Self::Unfinished(_))
@@ -123,7 +128,7 @@ impl AnyType {
 
     pub fn set_backside(self, new_back: BackSide) -> Self {
         match self {
-            x @ AnyType::Concept(_) => x,
+            x @ AnyType::Instance(_) => x,
             AnyType::Normal(NormalCard { front, .. }) => NormalCard {
                 front,
                 back: new_back,
@@ -136,12 +141,18 @@ impl AnyType {
             .into(),
             AnyType::Attribute(AttributeCard {
                 attribute,
-                concept_card,
+                instance: concept_card,
                 ..
             }) => AttributeCard {
                 attribute,
                 back: new_back,
-                concept_card,
+                instance: concept_card,
+            }
+            .into(),
+            Self::Class(class) => ClassCard {
+                name: class.name,
+                back: new_back,
+                parent_class: class.parent_class,
             }
             .into(),
         }
@@ -151,19 +162,21 @@ impl AnyType {
 impl CardTrait for AnyType {
     fn get_dependencies(&self) -> BTreeSet<CardId> {
         match self {
-            AnyType::Concept(card) => card.get_dependencies(),
+            AnyType::Instance(card) => card.get_dependencies(),
             AnyType::Normal(card) => card.get_dependencies(),
             AnyType::Unfinished(card) => card.get_dependencies(),
             AnyType::Attribute(card) => card.get_dependencies(),
+            AnyType::Class(card) => card.get_dependencies(),
         }
     }
 
     fn display_front(&self) -> String {
         match self {
-            AnyType::Concept(card) => card.display_front(),
+            AnyType::Instance(card) => card.display_front(),
             AnyType::Normal(card) => card.display_front(),
             AnyType::Unfinished(card) => card.display_front(),
             AnyType::Attribute(card) => card.display_front(),
+            AnyType::Class(card) => card.display_front(),
         }
     }
 }
@@ -229,8 +242,12 @@ impl Card<AnyType> {
         self.data.is_finished()
     }
 
-    pub fn is_concept(&self) -> bool {
-        self.data.is_concept()
+    pub fn is_class(&self) -> bool {
+        self.data.is_class()
+    }
+
+    pub fn is_instance(&self) -> bool {
+        self.data.is_instance()
     }
 
     // Call this function every time SavedCard is mutated.
@@ -280,6 +297,13 @@ impl Card<AnyType> {
         Self::from_raw(raw_card)
     }
 
+    pub fn new_class(class: ClassCard, category: &Category) -> Card<AnyType> {
+        let raw_card = RawCard::new(class);
+        raw_card.save_at(&category.as_path());
+        let raw_card = RawCard::load(raw_card.id).unwrap();
+        Self::from_raw(raw_card)
+    }
+
     pub fn new_attribute(unfinished: AttributeCard, category: &Category) -> Card<AnyType> {
         let raw_card = RawCard::new(unfinished);
         raw_card.save_at(&category.as_path());
@@ -287,8 +311,8 @@ impl Card<AnyType> {
         Self::from_raw(raw_card)
     }
 
-    pub fn new_concept(unfinished: InstanceCard, category: &Category) -> Card<AnyType> {
-        let raw_card = RawCard::new(unfinished);
+    pub fn new_instance(instance: InstanceCard, category: &Category) -> Card<AnyType> {
+        let raw_card = RawCard::new(instance);
         raw_card.save_at(&category.as_path());
         let raw_card = RawCard::load(raw_card.id).unwrap();
         Self::from_raw(raw_card)
@@ -305,6 +329,13 @@ impl Card<AnyType> {
         RawCard::load_all()
             .into_par_iter()
             .map(Self::from_raw)
+            .collect()
+    }
+
+    pub fn load_class_cards() -> Vec<Card<AnyType>> {
+        Self::load_all_cards()
+            .into_par_iter()
+            .filter(|card| card.is_class())
             .collect()
     }
 
@@ -367,9 +398,10 @@ impl Card<AnyType> {
     pub fn back_side(&self) -> Option<&BackSide> {
         match self.card_type() {
             AnyType::Normal(card) => Some(&card.back),
-            AnyType::Concept(_) => None?,
+            AnyType::Instance(_) => None?,
             AnyType::Attribute(card) => Some(&card.back),
             AnyType::Unfinished(_) => None?,
+            AnyType::Class(card) => Some(&card.back),
         }
     }
 
@@ -379,6 +411,10 @@ impl Card<AnyType> {
         raw.data = RawType::from_any(data.into());
         raw.save();
         Card::from_id(id).unwrap()
+    }
+
+    pub fn into_class(self, class: ClassCard) -> Card<AnyType> {
+        self.into_type(class)
     }
 
     pub fn into_normal(self, normal: NormalCard) -> Card<AnyType> {
@@ -391,7 +427,7 @@ impl Card<AnyType> {
         self.into_type(attribute)
     }
 
-    pub fn into_concept(self, concept: InstanceCard) -> Card<AnyType> {
+    pub fn into_instance(self, concept: InstanceCard) -> Card<AnyType> {
         self.into_type(concept)
     }
 }

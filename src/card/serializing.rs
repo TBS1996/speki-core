@@ -1,5 +1,5 @@
+use crate::attribute::AttributeId;
 use crate::common::CardId;
-use crate::concept::AttributeId;
 use crate::paths;
 use filecash::FsLoad;
 use serde::de::{self, Deserializer};
@@ -12,8 +12,8 @@ use toml::Value;
 use uuid::Uuid;
 
 use super::{
-    AnyType, AttributeCard, BackSide, Card, CardTrait, InstanceCard, IsSuspended, NormalCard,
-    UnfinishedCard,
+    AnyType, AttributeCard, BackSide, Card, CardTrait, ClassCard, InstanceCard, IsSuspended,
+    NormalCard, UnfinishedCard,
 };
 
 fn is_false(flag: &bool) -> bool {
@@ -25,8 +25,10 @@ pub struct RawType {
     pub front: Option<String>,
     pub back: Option<BackSide>,
     pub name: Option<String>,
-    pub concept: Option<Uuid>,
-    pub concept_card: Option<Uuid>,
+    #[serde(alias = "concept")]
+    pub class: Option<Uuid>,
+    #[serde(alias = "concept_card")]
+    pub instance: Option<Uuid>,
     pub attribute: Option<Uuid>,
 }
 
@@ -36,23 +38,29 @@ impl RawType {
             self.front,
             self.back,
             self.name,
-            self.concept,
+            self.class,
             self.attribute,
-            self.concept_card,
+            self.instance,
         ) {
-            (None, Some(back), None, None, Some(attribute), Some(concept_card)) => AttributeCard {
+            (None, Some(back), None, None, Some(attribute), Some(instance)) => AttributeCard {
                 attribute: AttributeId::verify(&attribute).unwrap(),
                 back,
-                concept_card: CardId(concept_card),
+                instance: CardId(instance),
             }
             .into(),
             (Some(front), Some(back), None, None, None, None) => NormalCard { front, back }.into(),
-            (None, None, Some(name), Some(concept), None, None) => InstanceCard {
+            (None, None, Some(name), Some(class), None, None) => InstanceCard {
                 name,
-                concept: CardId(concept),
+                class: CardId(class),
             }
             .into(),
             (Some(front), None, None, None, None, None) => UnfinishedCard { front }.into(),
+            (None, Some(back), Some(name), class, None, None) => ClassCard {
+                name,
+                back,
+                parent_class: class.map(CardId),
+            }
+            .into(),
             other => {
                 panic!("invalid combination of args: {:?}", other);
             }
@@ -62,9 +70,12 @@ impl RawType {
     pub fn from_any(ty: AnyType) -> Self {
         let mut raw = Self::default();
         match ty {
-            AnyType::Concept(ty) => {
-                let InstanceCard { concept, name } = ty;
-                raw.concept = Some(concept.into_inner());
+            AnyType::Instance(ty) => {
+                let InstanceCard {
+                    class: concept,
+                    name,
+                } = ty;
+                raw.class = Some(concept.into_inner());
                 raw.name = Some(name);
             }
             AnyType::Normal(ty) => {
@@ -80,11 +91,16 @@ impl RawType {
                 let AttributeCard {
                     attribute,
                     back,
-                    concept_card,
+                    instance: concept_card,
                 } = ty;
                 raw.attribute = Some(attribute.into_inner());
                 raw.back = Some(back);
-                raw.concept_card = Some(concept_card.into_inner());
+                raw.instance = Some(concept_card.into_inner());
+            }
+            AnyType::Class(ty) => {
+                raw.name = Some(ty.name);
+                raw.back = Some(ty.back);
+                raw.class = ty.parent_class.map(CardId::into_inner);
             }
         };
 
@@ -144,10 +160,11 @@ impl RawCard {
     pub fn new(card: impl Into<AnyType>) -> Self {
         let card: AnyType = card.into();
         match card {
-            AnyType::Concept(concept) => Self::new_concept(concept),
+            AnyType::Instance(concept) => Self::new_concept(concept),
             AnyType::Normal(normal) => Self::new_normal(normal),
             AnyType::Unfinished(unfinished) => Self::new_unfinished(unfinished),
             AnyType::Attribute(attribute) => Self::new_attribute(attribute),
+            AnyType::Class(class) => Self::new_class(class),
         }
     }
 
@@ -159,6 +176,13 @@ impl RawCard {
         }
     }
 
+    pub fn new_class(class: ClassCard) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            data: RawType::from_any(class.into()),
+            ..Default::default()
+        }
+    }
     pub fn new_attribute(attr: AttributeCard) -> Self {
         Self {
             id: Uuid::new_v4(),

@@ -1,28 +1,28 @@
 //pub mod cache;
-pub mod card;
-pub mod categories;
-pub mod collections;
-pub mod common;
-pub mod concept;
-pub mod config;
-pub mod github;
-pub mod paths;
-pub mod recall_rate;
-pub mod reviews;
-
+pub mod attribute;
+use attribute::Attribute;
+pub use card::Card;
+use card::{AnyType, AttributeCard, CardTrait, InstanceCard, NormalCard, UnfinishedCard};
+use categories::Category;
+use common::CardId;
+use eyre::Result;
+use reviews::Recall;
+use samsvar::Matcher;
+use sanitize_filename::sanitize;
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
 };
 
-pub use card::Card;
-use card::{AnyType, AttributeCard, CardTrait, InstanceCard, NormalCard, UnfinishedCard};
-use categories::Category;
-use common::CardId;
-use concept::Attribute;
-use reviews::Recall;
-use samsvar::Matcher;
-use sanitize_filename::sanitize;
+pub mod card;
+pub mod categories;
+pub mod collections;
+pub mod common;
+pub mod config;
+pub mod github;
+pub mod paths;
+pub mod recall_rate;
+pub mod reviews;
 
 pub fn load_cards() -> Vec<CardId> {
     Card::load_all_cards()
@@ -65,16 +65,14 @@ pub fn review(card_id: CardId, grade: Recall) {
     card.new_review(grade, Default::default());
 }
 
-use eyre::Result;
-
-pub fn set_concept(card_id: CardId, concept: CardId) -> Result<()> {
+pub fn set_class(card_id: CardId, class: CardId) -> Result<()> {
     let card = Card::from_id(card_id).unwrap();
 
-    let concept = InstanceCard {
+    let instance = InstanceCard {
         name: card.card_type().display_front(),
-        concept,
+        class,
     };
-    card.into_concept(concept);
+    card.into_instance(instance);
     Ok(())
 }
 
@@ -218,7 +216,7 @@ fn verify_attributes() {
     for card in Card::load_all_cards() {
         if let AnyType::Attribute(AttributeCard {
             attribute,
-            concept_card,
+            instance: concept_card,
             ..
         }) = card.card_type()
         {
@@ -228,7 +226,7 @@ fn verify_attributes() {
 
             match Card::from_id(*concept_card) {
                 Some(concept_card) => {
-                    if !card.card_type().is_concept() {
+                    if !card.card_type().is_class() {
                         println!(
                             "error, cards concept card is not a concept: {:?} -> {:?}",
                             &card, concept_card

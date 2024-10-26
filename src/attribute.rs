@@ -32,6 +32,17 @@ impl AttributeId {
     }
 }
 
+/// An attribute of a sub-class or an instance
+/// predefined questions that are valid for all in its class.
+///
+/// if is_instance_attribute is true, the attribute is valid for all instances of
+/// its class and its subclasses. For example 'when was {} born?' in the person class
+/// is asked for both instances of 'human male' and 'human female' as those have 'person' as
+/// parent class.
+///
+/// if its false, the attribute is valid for sub-classes only. for example, carbon is a class,
+/// carbon-14 is also a class, as it's not pointing to a specific carbon instance in the world
+/// on the carbon class you can have the
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Attribute {
     pub pattern: String,
