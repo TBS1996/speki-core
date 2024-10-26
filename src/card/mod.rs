@@ -103,6 +103,7 @@ pub enum AnyType {
     Unfinished(UnfinishedCard),
     Attribute(AttributeCard),
     Class(ClassCard),
+    Statement(StatementCard),
 }
 
 impl AnyType {
@@ -113,6 +114,7 @@ impl AnyType {
             AnyType::Unfinished(_) => "unfinished",
             AnyType::Attribute(_) => "attribute",
             AnyType::Class(_) => "class",
+            AnyType::Statement(_) => "statement",
         }
     }
 
@@ -129,6 +131,7 @@ impl AnyType {
     pub fn set_backside(self, new_back: BackSide) -> Self {
         match self {
             x @ AnyType::Instance(_) => x,
+            x @ AnyType::Statement(_) => x,
             AnyType::Normal(NormalCard { front, .. }) => NormalCard {
                 front,
                 back: new_back,
@@ -153,6 +156,7 @@ impl AnyType {
                 name: class.name,
                 back: new_back,
                 parent_class: class.parent_class,
+                is_event: class.is_event,
             }
             .into(),
         }
@@ -167,6 +171,7 @@ impl CardTrait for AnyType {
             AnyType::Unfinished(card) => card.get_dependencies(),
             AnyType::Attribute(card) => card.get_dependencies(),
             AnyType::Class(card) => card.get_dependencies(),
+            AnyType::Statement(card) => card.get_dependencies(),
         }
     }
 
@@ -177,6 +182,7 @@ impl CardTrait for AnyType {
             AnyType::Unfinished(card) => card.display_front(),
             AnyType::Attribute(card) => card.display_front(),
             AnyType::Class(card) => card.display_front(),
+            AnyType::Statement(card) => card.display_front(),
         }
     }
 }
@@ -397,11 +403,12 @@ impl Card<AnyType> {
 
     pub fn back_side(&self) -> Option<&BackSide> {
         match self.card_type() {
-            AnyType::Normal(card) => Some(&card.back),
-            AnyType::Instance(_) => None?,
             AnyType::Attribute(card) => Some(&card.back),
-            AnyType::Unfinished(_) => None?,
+            AnyType::Normal(card) => Some(&card.back),
             AnyType::Class(card) => Some(&card.back),
+            AnyType::Unfinished(_) => None?,
+            AnyType::Statement(_) => None?,
+            AnyType::Instance(_) => None?,
         }
     }
 
@@ -413,6 +420,9 @@ impl Card<AnyType> {
         Card::from_id(id).unwrap()
     }
 
+    pub fn into_statement(self, statement: StatementCard) -> Card<AnyType> {
+        self.into_type(statement)
+    }
     pub fn into_class(self, class: ClassCard) -> Card<AnyType> {
         self.into_type(class)
     }

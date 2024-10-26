@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use super::{
     AnyType, AttributeCard, BackSide, Card, CardTrait, ClassCard, InstanceCard, IsSuspended,
-    NormalCard, UnfinishedCard,
+    NormalCard, StatementCard, UnfinishedCard,
 };
 
 fn is_false(flag: &bool) -> bool {
@@ -25,15 +25,20 @@ pub struct RawType {
     pub front: Option<String>,
     pub back: Option<BackSide>,
     pub name: Option<String>,
-    #[serde(alias = "concept")]
     pub class: Option<Uuid>,
-    #[serde(alias = "concept_card")]
     pub instance: Option<Uuid>,
     pub attribute: Option<Uuid>,
+    pub statement: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_event: bool,
 }
 
 impl RawType {
     pub fn into_any(self) -> AnyType {
+        if let Some(statement) = self.statement {
+            return StatementCard { front: statement }.into();
+        }
+
         match (
             self.front,
             self.back,
@@ -59,6 +64,7 @@ impl RawType {
                 name,
                 back,
                 parent_class: class.map(CardId),
+                is_event: self.is_event,
             }
             .into(),
             other => {
@@ -101,6 +107,9 @@ impl RawType {
                 raw.name = Some(ty.name);
                 raw.back = Some(ty.back);
                 raw.class = ty.parent_class.map(CardId::into_inner);
+            }
+            AnyType::Statement(ty) => {
+                raw.statement = Some(ty.front);
             }
         };
 
@@ -165,6 +174,7 @@ impl RawCard {
             AnyType::Unfinished(unfinished) => Self::new_unfinished(unfinished),
             AnyType::Attribute(attribute) => Self::new_attribute(attribute),
             AnyType::Class(class) => Self::new_class(class),
+            AnyType::Statement(statement) => Self::new_statement(statement),
         }
     }
 
@@ -172,6 +182,14 @@ impl RawCard {
         Self {
             id: Uuid::new_v4(),
             data: RawType::from_any(unfinished.into()),
+            ..Default::default()
+        }
+    }
+
+    pub fn new_statement(statement: StatementCard) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            data: RawType::from_any(statement.into()),
             ..Default::default()
         }
     }
