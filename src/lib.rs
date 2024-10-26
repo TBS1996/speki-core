@@ -1,5 +1,3 @@
-//pub mod cache;
-pub mod attribute;
 use attribute::Attribute;
 pub use card::Card;
 use card::{AnyType, AttributeCard, CardTrait, InstanceCard, NormalCard, UnfinishedCard};
@@ -14,6 +12,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub mod attribute;
 pub mod card;
 pub mod categories;
 pub mod collections;
@@ -72,7 +71,7 @@ pub fn set_class(card_id: CardId, class: CardId) -> Result<()> {
         name: card.card_type().display_front(),
         class,
     };
-    card.into_instance(instance);
+    card.into_type(instance);
     Ok(())
 }
 

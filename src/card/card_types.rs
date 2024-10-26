@@ -100,6 +100,19 @@ pub struct UnfinishedCard {
     pub front: String,
 }
 
+impl InstanceCard {
+    pub fn is_event(&self) -> bool {
+        if let AnyType::Class(class) = Card::from_id(self.class).unwrap().data {
+            return class.is_event;
+        } else {
+            panic!(
+                "card {} has class id: {} which is not a card",
+                self.name, self.class
+            );
+        }
+    }
+}
+
 /// Just a normal flashcard
 #[derive(Debug, Clone)]
 pub struct NormalCard {
@@ -135,19 +148,6 @@ pub struct InstanceCard {
     pub class: CardId,
 }
 
-impl InstanceCard {
-    pub fn is_event(&self) -> bool {
-        if let AnyType::Class(class) = Card::from_id(self.class).unwrap().data {
-            return class.is_event;
-        } else {
-            panic!(
-                "card {} has class id: {} which is not a card",
-                self.name, self.class
-            );
-        }
-    }
-}
-
 /// A statement is a fact which cant easily be represented with a flashcard,
 /// because asking the question implies the answer.
 ///
@@ -177,3 +177,47 @@ impl CardTrait for StatementCard {
         self.front.clone()
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct EventCard {
+    pub front: String,
+}
+
+impl From<EventCard> for AnyType {
+    fn from(value: EventCard) -> Self {
+        Self::Event(value)
+    }
+}
+
+impl CardTrait for EventCard {
+    fn get_dependencies(&self) -> BTreeSet<CardId> {
+        Default::default()
+    }
+
+    fn display_front(&self) -> String {
+        self.front.clone()
+    }
+}
+
+/*
+
+
+German invasion of norway
+
+subclass
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+*/

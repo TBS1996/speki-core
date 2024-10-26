@@ -104,17 +104,19 @@ pub enum AnyType {
     Attribute(AttributeCard),
     Class(ClassCard),
     Statement(StatementCard),
+    Event(EventCard),
 }
 
 impl AnyType {
     pub fn type_name(&self) -> &str {
         match self {
+            AnyType::Unfinished(_) => "unfinished",
+            AnyType::Statement(_) => "statement",
+            AnyType::Attribute(_) => "attribute",
             AnyType::Instance(_) => "instance",
             AnyType::Normal(_) => "normal",
-            AnyType::Unfinished(_) => "unfinished",
-            AnyType::Attribute(_) => "attribute",
             AnyType::Class(_) => "class",
-            AnyType::Statement(_) => "statement",
+            AnyType::Event(_) => "event",
         }
     }
 
@@ -130,6 +132,7 @@ impl AnyType {
 
     pub fn set_backside(self, new_back: BackSide) -> Self {
         match self {
+            x @ AnyType::Event(_) => x,
             x @ AnyType::Instance(_) => x,
             x @ AnyType::Statement(_) => x,
             AnyType::Normal(NormalCard { front, .. }) => NormalCard {
@@ -172,6 +175,7 @@ impl CardTrait for AnyType {
             AnyType::Attribute(card) => card.get_dependencies(),
             AnyType::Class(card) => card.get_dependencies(),
             AnyType::Statement(card) => card.get_dependencies(),
+            AnyType::Event(card) => card.get_dependencies(),
         }
     }
 
@@ -183,6 +187,7 @@ impl CardTrait for AnyType {
             AnyType::Attribute(card) => card.display_front(),
             AnyType::Class(card) => card.display_front(),
             AnyType::Statement(card) => card.display_front(),
+            AnyType::Event(card) => card.display_front(),
         }
     }
 }
@@ -232,6 +237,7 @@ impl Card<AnyType> {
             AnyType::Unfinished(_) => None,
             AnyType::Attribute(_) => None,
             AnyType::Statement(_) => None,
+            AnyType::Event(_) => None,
         }
     }
 
@@ -435,36 +441,16 @@ impl Card<AnyType> {
             AnyType::Unfinished(_) => None?,
             AnyType::Statement(_) => None?,
             AnyType::Instance(_) => None?,
+            AnyType::Event(_) => None?,
         }
     }
 
-    fn into_type(self, data: impl Into<AnyType>) -> Card<AnyType> {
+    pub fn into_type(self, data: impl Into<AnyType>) -> Card<AnyType> {
         let id = self.id();
         let mut raw = RawCard::from_card(self);
         raw.data = RawType::from_any(data.into());
         raw.save();
         Card::from_id(id).unwrap()
-    }
-
-    pub fn into_statement(self, statement: StatementCard) -> Card<AnyType> {
-        self.into_type(statement)
-    }
-    pub fn into_class(self, class: ClassCard) -> Card<AnyType> {
-        self.into_type(class)
-    }
-
-    pub fn into_normal(self, normal: NormalCard) -> Card<AnyType> {
-        self.into_type(normal)
-    }
-    pub fn into_unfinished(self, unfinished: UnfinishedCard) -> Card<AnyType> {
-        self.into_type(unfinished)
-    }
-    pub fn into_attribute(self, attribute: AttributeCard) -> Card<AnyType> {
-        self.into_type(attribute)
-    }
-
-    pub fn into_instance(self, instance: InstanceCard) -> Card<AnyType> {
-        self.into_type(instance)
     }
 }
 

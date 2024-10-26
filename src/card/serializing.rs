@@ -12,8 +12,8 @@ use toml::Value;
 use uuid::Uuid;
 
 use super::{
-    AnyType, AttributeCard, BackSide, Card, CardTrait, ClassCard, InstanceCard, IsSuspended,
-    NormalCard, StatementCard, UnfinishedCard,
+    AnyType, AttributeCard, BackSide, Card, CardTrait, ClassCard, EventCard, InstanceCard,
+    IsSuspended, NormalCard, StatementCard, UnfinishedCard,
 };
 
 fn is_false(flag: &bool) -> bool {
@@ -31,12 +31,17 @@ pub struct RawType {
     pub statement: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub is_event: bool,
+    pub event: Option<String>,
 }
 
 impl RawType {
     pub fn into_any(self) -> AnyType {
         if let Some(statement) = self.statement {
             return StatementCard { front: statement }.into();
+        }
+
+        if let Some(event) = self.event {
+            return EventCard { front: event }.into();
         }
 
         match (
@@ -76,40 +81,42 @@ impl RawType {
     pub fn from_any(ty: AnyType) -> Self {
         let mut raw = Self::default();
         match ty {
-            AnyType::Instance(ty) => {
-                let InstanceCard {
-                    class: concept,
-                    name,
-                } = ty;
-                raw.class = Some(concept.into_inner());
+            AnyType::Instance(InstanceCard { name, class }) => {
+                raw.class = Some(class.into_inner());
                 raw.name = Some(name);
             }
-            AnyType::Normal(ty) => {
-                let NormalCard { front, back } = ty;
+            AnyType::Normal(NormalCard { front, back }) => {
                 raw.front = Some(front);
                 raw.back = Some(back);
             }
-            AnyType::Unfinished(ty) => {
-                let UnfinishedCard { front } = ty;
+            AnyType::Unfinished(UnfinishedCard { front }) => {
                 raw.front = Some(front);
             }
-            AnyType::Attribute(ty) => {
-                let AttributeCard {
-                    attribute,
-                    back,
-                    instance: concept_card,
-                } = ty;
+            AnyType::Attribute(AttributeCard {
+                attribute,
+                back,
+                instance,
+            }) => {
                 raw.attribute = Some(attribute.into_inner());
                 raw.back = Some(back);
-                raw.instance = Some(concept_card.into_inner());
+                raw.instance = Some(instance.into_inner());
             }
-            AnyType::Class(ty) => {
-                raw.name = Some(ty.name);
-                raw.back = Some(ty.back);
-                raw.class = ty.parent_class.map(CardId::into_inner);
+            AnyType::Class(ClassCard {
+                name,
+                back,
+                parent_class,
+                is_event,
+            }) => {
+                raw.name = Some(name);
+                raw.back = Some(back);
+                raw.class = parent_class.map(CardId::into_inner);
+                raw.is_event = is_event;
             }
-            AnyType::Statement(ty) => {
-                raw.statement = Some(ty.front);
+            AnyType::Statement(StatementCard { front }) => {
+                raw.statement = Some(front);
+            }
+            AnyType::Event(EventCard { front }) => {
+                raw.event = Some(front);
             }
         };
 
@@ -175,6 +182,7 @@ impl RawCard {
             AnyType::Attribute(attribute) => Self::new_attribute(attribute),
             AnyType::Class(class) => Self::new_class(class),
             AnyType::Statement(statement) => Self::new_statement(statement),
+            AnyType::Event(event) => Self::new_event(event),
         }
     }
 
@@ -182,6 +190,14 @@ impl RawCard {
         Self {
             id: Uuid::new_v4(),
             data: RawType::from_any(unfinished.into()),
+            ..Default::default()
+        }
+    }
+
+    pub fn new_event(statement: EventCard) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            data: RawType::from_any(statement.into()),
             ..Default::default()
         }
     }
